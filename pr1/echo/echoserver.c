@@ -8,6 +8,7 @@
 #include <getopt.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 
 #define BUFSIZE 1024
 
@@ -65,5 +66,28 @@ int main(int argc, char **argv) {
 
 
   /* Socket Code Here */
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
 
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY; // 0.0.0.0 any IP
+    addr.sin_port = portno;
+    bind(fd, (struct sockaddr*)&addr, sizeof(addr));
+
+    listen(fd, 1);
+    printf("Server listening on port %d\n", portno);
+
+    struct sockaddr_in client_addr;
+    socklen_t client_addr_len = sizeof(client_addr);
+    int client_fd = accept(fd, (struct sockaddr*) &client_addr, &client_addr_len);
+    printf("Client connected: %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port)); // TODO: inet_ntoa is not thread-safe, might need to change to inet_ntop when in comes to multithreading
+
+    char buffer[1024];
+    int n;
+    while ((n=recv(client_fd, buffer, sizeof(buffer), 0)) > 0) {
+        send(client_fd, buffer, n, 0);
+    }
+
+    close(client_fd);
+    close(fd);
 }
