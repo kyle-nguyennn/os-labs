@@ -8,6 +8,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <getopt.h>
+#include <arpa/inet.h>
 
 /* Be prepared accept a response of this length */
 #define BUFSIZE 1024
@@ -77,5 +78,28 @@ int main(int argc, char **argv)
     }
 
     /* Socket Code Here */
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
 
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(portno);
+    inet_pton(AF_INET, hostname, &server_addr.sin_addr);
+
+    if (connect(fd, (struct sockaddr*) &server_addr, sizeof(server_addr)) == -1) {
+        perror("connect");
+        close(fd);
+        exit(1);
+    }
+    printf("Connected to %s:%d\n", hostname, portno);
+
+    char buffer[1024];
+    send(fd, message, sizeof(message), 0);
+
+    int n = recv(fd, buffer, sizeof(buffer)-1, 0);
+    buffer[n] = '\0';
+    printf("Server replies: %s", buffer);
+
+    close(fd);
+    return 0;
 }
