@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY; // 0.0.0.0 any IP
-    addr.sin_port = portno;
+    addr.sin_port = htons(portno); // ensure big-endian byte order for network
     bind(fd, (struct sockaddr*)&addr, sizeof(addr));
 
     listen(fd, 1);
@@ -83,8 +83,10 @@ int main(int argc, char **argv) {
     printf("Client connected: %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port)); // TODO: inet_ntoa is not thread-safe, might need to change to inet_ntop when in comes to multithreading
 
     char buffer[1024];
+    memset(&buffer, 0, sizeof(buffer));
     int n;
     while ((n=recv(client_fd, buffer, sizeof(buffer), 0)) > 0) {
+        printf("Received message from client: %s\n", buffer);
         send(client_fd, buffer, n, 0);
     }
 
