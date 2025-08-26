@@ -91,14 +91,14 @@ int main(int argc, char **argv)
         close(fd);
         exit(1);
     }
-    printf("Connected to %s:%d\n", hostname, portno);
+    //printf("Connected to %s:%d\n", hostname, portno);
 
     char buffer[1024];
     send(fd, message, strlen(message), 0);
 
     int n = recv(fd, buffer, sizeof(buffer)-1, 0);
     buffer[n] = '\0';
-    printf("Server replies: %s\n", buffer);
+    printf("%s", buffer);
 
     close(fd);
     return 0;

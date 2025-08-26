@@ -75,18 +75,18 @@ int main(int argc, char **argv) {
     bind(fd, (struct sockaddr*)&addr, sizeof(addr));
 
     listen(fd, 1);
-    printf("Server listening on port %d\n", portno);
+    //printf("Server listening on port %d\n", portno);
 
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
     int client_fd = accept(fd, (struct sockaddr*) &client_addr, &client_addr_len);
-    printf("Client connected: %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port)); // TODO: inet_ntoa is not thread-safe, might need to change to inet_ntop when in comes to multithreading
+    //printf("Client connected: %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port)); // TODO: inet_ntoa is not thread-safe, might need to change to inet_ntop when in comes to multithreading
 
     char buffer[1024];
     memset(&buffer, 0, sizeof(buffer));
     int n;
     while ((n=recv(client_fd, buffer, sizeof(buffer), 0)) > 0) {
-        printf("Received message from client: %s\n", buffer);
+        printf("%s\n", buffer);
         send(client_fd, buffer, n, 0);
     }
 
