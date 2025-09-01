@@ -76,4 +76,61 @@ int main(int argc, char **argv)
     }
 
     /* Socket Code Here */
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        perror("socket");
+        exit(1);
+    }
+
+    // Instead of using sockaddr_in as in echoclient, we are going to use addrinfo
+    // to support both IPv4 and IPv6 addresses
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    // convert portno to string because getaddrinfo takes in port number as string
+    char portstr[6]; // port number is unsigned short (0-65535) -> 5 chars + terminating null so 6 bytes
+    snprintf(portstr, sizeof(portstr), "%hu", portno);
+
+    struct addrinfo *res;
+    int gai_rc;
+    if ((gai_rc = getaddrinfo(hostname, portstr, &hints, &res)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(gai_rc));
+        close(fd);
+        exit(1);
+    }
+
+    // Try to connect to server
+    if (connect(fd, res->ai_addr, res->ai_addrlen) == -1) {
+        perror("connect");
+        freeaddrinfo(res);
+        close(fd);
+        exit(1);
+    }
+    // Now we don't need addrinfo anymore, can free up res
+    freeaddrinfo(res);
+
+    // Start recv from server
+    int total_len = 0;
+    ssize_t n_recv;
+    char buffer[BUFSIZE];
+    FILE *fp = fopen(filename, "w");
+    if (fp == NULL) {
+        fprintf(stderr, "Error opening file %s\n", filename);
+        close(fd);
+        exit(1);
+    }
+    while ((n_recv = recv(fd, buffer, sizeof(buffer), 0)) != -1) {
+        total_len += n_recv;
+        size_t bytes_written = fwrite(buffer, 1, n_recv, fp);
+        if (bytes_written != n_recv) {
+            perror("Error writing to file");
+            fclose(fp);
+            close(fd);
+        }
+    }
+    fclose(fp);
+    printf("File received.");
+    close(fd);
 }
