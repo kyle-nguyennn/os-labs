@@ -111,7 +111,7 @@ int main(int argc, char **argv)
                     perror("send");
                 }
                 printf("sent %ld bytes to client\n", n_sent);
-                // printf("%s\n", s);
+                printf("%.*s\n", BUFSIZE, s);
                 bytes_sent += n_sent;
             }
             s_idx %= BUFSIZE;
@@ -120,7 +120,7 @@ int main(int argc, char **argv)
             ssize_t n_sent = send(client_fd, &s, s_idx, 0);
             bytes_sent += n_sent;
             printf("sent %ld bytes to client\n", n_sent);
-            // printf("%s\n", s);
+            printf("%.*s\n", (int)n_sent, s);
         }
         printf("Total bytes sent: %ld bytes\n", bytes_sent);
         close(client_fd);
