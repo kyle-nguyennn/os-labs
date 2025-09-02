@@ -1,3 +1,4 @@
+#include <asm-generic/socket.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -65,5 +66,68 @@ int main(int argc, char **argv)
     }
 
     /* Socket Code Here */
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(portno);
 
+    int yes=1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+
+    if (bind(server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) != 0) {
+        perror("bind");
+        close(server_fd);
+        exit(1);
+    }
+
+    if (listen(server_fd, 1) != 0) {
+        perror("listen");
+        close(server_fd);
+        exit(1);
+    }
+
+    FILE* fp = fopen(filename, "r");
+    if (fp == NULL) {
+        fprintf(stderr, "Error opening file %s\n", filename);
+        close(server_fd);
+        exit(1);
+    }
+
+    char s[BUFSIZE];
+    while(1) {
+        struct sockaddr_in client_addr;
+        socklen_t client_addr_len = sizeof(client_addr);
+        int client_fd = accept(server_fd, (struct sockaddr*) &client_addr, &client_addr_len);
+        memset(s, 0, sizeof(s));
+        ssize_t bytes_sent = 0;
+        int s_idx = 0;
+        char c;
+        while ((c = fgetc(fp)) != EOF) {
+            s[s_idx++] = c;
+            if (s_idx == BUFSIZE) {
+                ssize_t n_sent = send(client_fd, &s, s_idx, 0);
+                if (n_sent == -1) {
+                    perror("send");
+                }
+                printf("sent %ld bytes to client\n", n_sent);
+                // printf("%s\n", s);
+                bytes_sent += n_sent;
+            }
+            s_idx %= BUFSIZE;
+        }
+        if (s_idx > 0) { // send the partial buffer
+            ssize_t n_sent = send(client_fd, &s, s_idx, 0);
+            bytes_sent += n_sent;
+            printf("sent %ld bytes to client\n", n_sent);
+            // printf("%s\n", s);
+        }
+        printf("Total bytes sent: %ld bytes\n", bytes_sent);
+        close(client_fd);
+        // Rewind file pointer
+        fseek(fp, 0, SEEK_SET);
+    }
+
+    fclose(fp);
+    close(server_fd);
 }

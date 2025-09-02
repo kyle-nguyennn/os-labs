@@ -121,16 +121,26 @@ int main(int argc, char **argv)
         close(fd);
         exit(1);
     }
-    while ((n_recv = recv(fd, buffer, sizeof(buffer), 0)) != -1) {
+    while ((n_recv = recv(fd, buffer, sizeof(buffer), 0)) > 0) {
+        printf("Received %ld bytes from server\n", n_recv);
         total_len += n_recv;
         size_t bytes_written = fwrite(buffer, 1, n_recv, fp);
+        printf("Writing %ld bytes to file\n", bytes_written);
         if (bytes_written != n_recv) {
             perror("Error writing to file");
             fclose(fp);
             close(fd);
         }
     }
+    if (n_recv == -1) {
+        perror("recv");
+        // TODO: how to interpret errno
+        close(fd);
+        exit(1);
+    } else if (n_recv == 0) {
+        perror("Server unexpectedly close connection");
+    }
     fclose(fp);
-    printf("File received.");
+    printf("File received.\n");
     close(fd);
 }
