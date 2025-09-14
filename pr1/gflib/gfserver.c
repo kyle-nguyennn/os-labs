@@ -48,19 +48,19 @@ ssize_t gfs_sendheader(gfcontext_t **ctx, gfstatus_t status, size_t file_len){
     // not yet implemented
     char strstatus[19];
     switch (status) {
-        case 200: sprintf(strstatus, "GF_OK"); break;
-        case 400: sprintf(strstatus, "GF_FILE_NOT_FOUND"); break;
-        case 500: sprintf(strstatus, "GF_ERROR"); break;
-        case 600: sprintf(strstatus, "GF_INVALID"); break;
-        default: sprintf(strstatus, "GF_INVALID");
+        case 200: sprintf(strstatus, "OK"); break;
+        case 400: sprintf(strstatus, "FILE_NOT_FOUND"); break;
+        case 500: sprintf(strstatus, "ERROR"); break;
+        case 600: sprintf(strstatus, "INVALID"); break;
+        default: sprintf(strstatus, "INVALID");
     }
     char file_len_str[21];
     sprintf(file_len_str, "%ld", file_len);
-    int header_len = strlen(SCHEME) + 1 + strlen(strstatus) + (status==GF_OK)?(strlen(file_len_str)+1):0 + 4;
-    char* header = (char*)malloc(header_len);
+    int header_len = strlen(SCHEME) + 1 + strlen(strstatus) + ((status==GF_OK)?(strlen(file_len_str)+1):0) + 4;
+    char* header = (char*)malloc(header_len+1); // since sprintf automatically adds \0
     if (status == GF_OK) sprintf(header, "%s %s %s\r\n\r\n", SCHEME, strstatus, file_len_str);
     else sprintf(header, "%s %s\r\n\r\n", SCHEME, strstatus);
-
+    printf("header: len=%d\n%s\n", header_len, header);
     return send((*ctx)->client_fd, header, header_len, 0);
 }
 
@@ -104,7 +104,7 @@ void parse_request(gfrequest_t* request, char* buffer) {
     request->scheme = parsed[0];
     request->method = parsed[1];
     int path_len = strlen(parsed[2]);
-    parsed[2][path_len-4] = '\0'; // remove \r\n\r\n at the end
+    parsed[2][path_len-3] = '\0'; // remove \r\n\r\n at the end
     request->path = parsed[2];
 }
 

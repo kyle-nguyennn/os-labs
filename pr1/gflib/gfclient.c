@@ -18,6 +18,7 @@ struct gfcrequest_t {
   unsigned short port;
   const char* path;
   gfstatus_t status;
+  int header_len;
   size_t file_len;
   size_t bytesreceived;
 
@@ -40,22 +41,27 @@ void gfc_cleanup(gfcrequest_t **gfr) {}
 
 void headerfunc(void* data, size_t len, void* arg) {
   gfcrequest_t* req = (gfcrequest_t*) arg;
+  printf("header length: %ld\n", len);
   if (!data || (len < strlen(SCHEME)+2)) return;
   // parse status
   int start = strlen(SCHEME) + 1;
   int i;
   for (i=start; i<len && *((char*)data+i)!= ' '; ++i);
-  char* strstatus = (char*)malloc(i-start);
+  char* strstatus = (char*)malloc(i-start+1);
   strncpy(strstatus, (char*)data + start, i-start);
+  strstatus[i-start] = '\0';
   printf("Server status: %s\n", strstatus);
   req->status = gfstatus_from_str(strstatus);
   // parse file len
   start = i+1;
   for (i=start;i<len && *((char*)data+i)!= '\r'; ++i);
-  char* len_str = (char*)malloc(i-start);
+  char* len_str = (char*)malloc(i-start+1);
   strncpy(len_str, (char*)data+start, i-start);
+  len_str[i-start] = '\0';
   req->file_len = atoi(len_str);
-  req->bytesreceived = i+4; // currently i is at the first \r in the \r\n\r\n
+  printf("File length: %ld\n", req->file_len);
+  req->header_len = i+4; // plus 4 bytes ending the header
+  printf("Header len=%d\n", req->header_len);
 }
 
 size_t gfc_get_filelen(gfcrequest_t **gfr) {
@@ -73,6 +79,9 @@ gfcrequest_t *gfc_create() {
   gfcrequest_t *req = (gfcrequest_t*)malloc(sizeof(gfcrequest_t));
   req->headerfunc = headerfunc;
   req->headerarg = req;
+  req->bytesreceived = 0;
+  req->file_len = 0;
+  req->header_len = 0;
   return req;
 }
 
@@ -133,36 +142,37 @@ int gfc_perform(gfcrequest_t **gfr) {
   }
   free(message);
   // Handle first response by calling (*gfr)->headerfunc
-  char* buffer[BUFSIZE];
-  size_t n_recv;
+  char buffer[BUFSIZE];
+  ssize_t n_recv;
   if ((n_recv=recv(server_fd, buffer, sizeof(buffer), 0)) < 0) {
     perror("recv");
     close(server_fd);
     exit(1);
   }
   (*gfr)->headerfunc(buffer, n_recv, *gfr);
-  printf("Processed %ld bytes from server header\n", (*gfr)->bytesreceived);
+  printf("Processed %d bytes from server header\n", (*gfr)->header_len);
 
   // Handle the rest of the message if more than header was sent
-  if ((*gfr)->bytesreceived < n_recv) {
-    int offset = (*gfr)->bytesreceived;
+  if ((*gfr)->header_len < n_recv) {
+    printf("Handle the rest of %ld bytes in the first message\n", n_recv-(*gfr)->header_len);
+    int offset = (*gfr)->header_len;
     (*gfr)->writefunc(buffer+offset, n_recv-offset, (*gfr)->writearg);
+    (*gfr)->bytesreceived = n_recv-(*gfr)->header_len;
   }
-  (*gfr)->bytesreceived = n_recv;
 
   // Handle data stream while server still sending by calling (*gfr)->writefunc
   while ((n_recv=recv(server_fd, buffer, sizeof(buffer), 0)) > 0) {
     printf("Received %ld bytes from server\n", n_recv);
-    (*gfr)->bytesreceived += n_recv;
+    ((*gfr)->bytesreceived) += n_recv;
     (*gfr)->writefunc(buffer, n_recv, (*gfr)->writearg);
+    printf("Processed total of %ld bytes\n", (*gfr)->bytesreceived);
+    if ((*gfr)->bytesreceived >= (*gfr)->file_len) break;
   }
-  if (n_recv == -1) {
+  if (n_recv < 0) {
     perror("recv");
     // TODO: how to interpret errno
     close(server_fd);
     exit(1);
-  } else if (n_recv == 0) {
-    printf("File downloaded!");
   }
   printf("File received.\n");
   close(server_fd);
@@ -225,9 +235,9 @@ const char *gfc_strstatus(gfstatus_t status) {
 
 gfstatus_t gfstatus_from_str(const char* str) {
   if (!str) return GF_INVALID;
-  if (strcmp(str, "OK")) return GF_OK;
-  if (strcmp(str, "FILE_NOT_FOUND")) return GF_FILE_NOT_FOUND;
-  if (strcmp(str, "INVALID")) return GF_INVALID;
-  if (strcmp(str, "ERROR")) return GF_ERROR;
+  if (strcmp(str, "OK") == 0) return GF_OK;
+  if (strcmp(str, "FILE_NOT_FOUND") == 0) return GF_FILE_NOT_FOUND;
+  if (strcmp(str, "INVALID") == 0) return GF_INVALID;
+  if (strcmp(str, "ERROR") == 0) return GF_ERROR;
   return GF_INVALID;
 }
