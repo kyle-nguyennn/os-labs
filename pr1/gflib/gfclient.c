@@ -32,7 +32,9 @@ struct gfcrequest_t {
 };
 
 // optional function for cleaup processing.
-void gfc_cleanup(gfcrequest_t **gfr) {}
+void gfc_cleanup(gfcrequest_t **gfr) {
+  free(*gfr);
+}
 
 /*
  * Default header func: assume the full header fits within one message
@@ -62,6 +64,8 @@ void headerfunc(void* data, size_t len, void* arg) {
   printf("File length: %ld\n", req->file_len);
   req->header_len = i+4; // plus 4 bytes ending the header
   printf("Header len=%d\n", req->header_len);
+  free(strstatus);
+  free(len_str);
 }
 
 size_t gfc_get_filelen(gfcrequest_t **gfr) {
