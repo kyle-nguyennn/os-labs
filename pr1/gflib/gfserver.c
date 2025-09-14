@@ -1,6 +1,6 @@
 
-#include "gfserver.h"
 #include <stdlib.h>
+#include "gfserver.h"
 #include <sys/socket.h>
 #include <string.h>
 #include "gfserver-student.h"
