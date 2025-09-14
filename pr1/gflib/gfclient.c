@@ -47,7 +47,7 @@ void headerfunc(void* data, size_t len, void* arg) {
   for (i=start; i<len && *((char*)data+i)!= ' '; ++i);
   char* strstatus = (char*)malloc(i-start);
   strncpy(strstatus, (char*)data + start, i-start);
-  printf("Server status: %s", strstatus);
+  printf("Server status: %s\n", strstatus);
   req->status = gfstatus_from_str(strstatus);
   // parse file len
   start = i+1;
@@ -89,7 +89,7 @@ int gfc_perform(gfcrequest_t **gfr) {
   size_t req_len = 7 + 1 + 3 + 1 + strlen((*gfr)->path) + 4;
   char* message = (char*)malloc(req_len*sizeof(char));
   snprintf(message, req_len, "%s %s %s\r\n\r\n", SCHEME, METHOD, (*gfr)->path);
-  printf("Sending request to server:\n%s\n", message);
+  printf("Sending request to server: %s\n", message);
   // TODO: below steps
   // Open socket connection to server
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -141,6 +141,7 @@ int gfc_perform(gfcrequest_t **gfr) {
     exit(1);
   }
   (*gfr)->headerfunc(buffer, n_recv, *gfr);
+  printf("Processed %ld bytes from server header\n", (*gfr)->bytesreceived);
 
   // Handle the rest of the message if more than header was sent
   if ((*gfr)->bytesreceived < n_recv) {
