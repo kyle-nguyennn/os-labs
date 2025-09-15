@@ -31,9 +31,27 @@ struct gfcrequest_t {
 
 };
 
+gfcrequest_t *gfc_create() {
+  // student implemented
+  gfcrequest_t *req = (gfcrequest_t*)malloc(sizeof(gfcrequest_t));
+  req->server = NULL;
+  req->port = 0;
+  req->path = NULL;
+  req->status = GF_INVALID;
+  req->header_len = 0;
+  req->file_len = 0;
+  req->bytesreceived = 0;
+  req->headerfunc = headerfunc;
+  req->headerarg = req;
+  req->writefunc = NULL;
+  req->writearg = NULL;
+  return req;
+}
+
 // optional function for cleaup processing.
 void gfc_cleanup(gfcrequest_t **gfr) {
   free(*gfr);
+  // **gfr is freed in caller
 }
 
 /*
@@ -78,17 +96,6 @@ size_t gfc_get_bytesreceived(gfcrequest_t **gfr) {
   return (*gfr)->bytesreceived;
 }
 
-gfcrequest_t *gfc_create() {
-  // student implemented
-  gfcrequest_t *req = (gfcrequest_t*)malloc(sizeof(gfcrequest_t));
-  req->headerfunc = headerfunc;
-  req->headerarg = req;
-  req->bytesreceived = 0;
-  req->file_len = 0;
-  req->header_len = 0;
-  return req;
-}
-
 gfstatus_t gfc_get_status(gfcrequest_t **gfr) {
   return (*gfr)->status;
 }
@@ -98,51 +105,71 @@ void gfc_global_init() {}
 void gfc_global_cleanup() {}
 
 int gfc_perform(gfcrequest_t **gfr) {
-  // not yet implemented
-  size_t req_len = 7 + 1 + 3 + 1 + strlen((*gfr)->path) + 4;
-  char* message = (char*)malloc(req_len*sizeof(char));
-  snprintf(message, req_len, "%s %s %s\r\n\r\n", SCHEME, METHOD, (*gfr)->path);
-  printf("Sending request to server: %s\n", message);
-  // TODO: below steps
-  // Open socket connection to server
-  int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (server_fd < 0) {
-      perror("socket");
-      exit(1);
+  size_t req_len = 7 + 1 + 3 + 1 + strlen((*gfr)->path) + 4; // SCHEME + space + METHOD + space + path + CRLFCRLF
+  char* message = (char*)malloc(req_len+1); // snprintf adds trailing \0
+  if (!message) {
+    fprintf(stderr, "malloc failed for request message\n");
+    return -1;
   }
-  // addrinfo to support both IPv4 and IPv6 addresses
-  struct addrinfo hints;
-  memset(&hints, 0, sizeof(hints));
-  hints.ai_family = AF_INET;
-  hints.ai_socktype = SOCK_STREAM;
+  snprintf(message, req_len+1, "%s %s %s\r\n\r\n", SCHEME, METHOD, (*gfr)->path);
+  printf("Sending request to server: %s\n", message);
 
-  // convert portno to string because getaddrinfo takes in port number as string
-  char portstr[6]; // port number is unsigned short (0-65535) -> 5 chars + terminating null so 6 bytes
+  // Prepare hints for dual-stack resolution (IPv4 & IPv6)
+  struct addrinfo hints; 
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_UNSPEC;      // Allow IPv4 or IPv6
+  hints.ai_socktype = SOCK_STREAM;  // TCP
+  hints.ai_flags = 0;
+
+  char portstr[6];
   snprintf(portstr, sizeof(portstr), "%hu", (*gfr)->port);
 
-  struct addrinfo *res;
-  int gai_rc;
-  if ((gai_rc = getaddrinfo((*gfr)->server, portstr, &hints, &res)) != 0) {
-      fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(gai_rc));
-      close(server_fd);
-      exit(1);
+  struct addrinfo *res = NULL, *p = NULL;
+  int gai_rc = getaddrinfo((*gfr)->server, portstr, &hints, &res);
+  if (gai_rc != 0) {
+    fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(gai_rc));
+    free(message);
+    return -1;
   }
 
-  // Try to connect to server
-  if (connect(server_fd, res->ai_addr, res->ai_addrlen) == -1) {
-      perror("connect");
-      freeaddrinfo(res);
-      close(server_fd);
-      exit(1);
+  int server_fd = -1;
+  for (p = res; p != NULL; p = p->ai_next) {
+    server_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+    if (server_fd < 0) {
+      // Try next address
+      continue;
+    }
+
+    // If IPv6, attempt to allow IPv4-mapped (dual-stack) when possible.
+#ifdef IPPROTO_IPV6
+    if (p->ai_family == AF_INET6) {
+      int off = 0; // 0 => allow both (if system default is v6-only we clear it)
+      (void)setsockopt(server_fd, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
+    }
+#endif
+
+    if (connect(server_fd, p->ai_addr, p->ai_addrlen) == 0) {
+      break; // success
+    }
+    perror("connect");
+    close(server_fd);
+    server_fd = -1;
   }
-  // Now we don't need addrinfo anymore, can free up res
+
+  if (server_fd < 0) {
+    fprintf(stderr, "Failed to connect to any resolved address\n");
+    freeaddrinfo(res);
+    free(message);
+    return -1;
+  }
+  printf("Connected\n");
   freeaddrinfo(res);
-  // Send request through connection and wait for reponse
+
   if (send(server_fd, message, req_len, 0) < 0) {
-    // TODO: could do retry here
     perror("send");
     close(server_fd);
-    exit(1);
+    free(message);
+    return -1;
   }
   free(message);
   // Handle first response by calling (*gfr)->headerfunc
@@ -151,9 +178,10 @@ int gfc_perform(gfcrequest_t **gfr) {
   if ((n_recv=recv(server_fd, buffer, sizeof(buffer), 0)) < 0) {
     perror("recv");
     close(server_fd);
-    exit(1);
+    return -1;
   }
-  (*gfr)->headerfunc(buffer, n_recv, *gfr);
+  printf("First reponse: %ld bytes\n", n_recv);
+  (*gfr)->headerfunc(buffer, n_recv, (*gfr)->headerarg);
   printf("Processed %d bytes from server header\n", (*gfr)->header_len);
 
   // Handle the rest of the message if more than header was sent
@@ -176,7 +204,7 @@ int gfc_perform(gfcrequest_t **gfr) {
     perror("recv");
     // TODO: how to interpret errno
     close(server_fd);
-    exit(1);
+    return -1;
   }
   printf("File received.\n");
   close(server_fd);
