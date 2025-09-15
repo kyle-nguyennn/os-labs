@@ -215,8 +215,8 @@ int gfc_perform(gfcrequest_t **gfr) {
     (*gfr)->writefunc(buffer, offset + n_recv, (*gfr)->writearg);
     offset = 0; // reset offset after process all bytes received in buffer
     printf("Processed total of %ld bytes\n", (*gfr)->bytesreceived);
-    if ((*gfr)->bytesreceived < ((*gfr)->file_len)) break;
-    if ((n_recv=recv(server_fd, buffer+offset, sizeof(buffer)-offset, 0)) > 0) {
+    if ((*gfr)->bytesreceived >= ((*gfr)->file_len)) break;
+    if ((n_recv=recv(server_fd, buffer+offset, sizeof(buffer)-offset, 0)) < 0) {
       perror("recv");
       close(server_fd);
       return -1;
