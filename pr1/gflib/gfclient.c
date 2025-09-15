@@ -1,4 +1,3 @@
-
 #include "gfclient.h"
 #include <stdlib.h>
 #include <stdbool.h>
@@ -52,8 +51,9 @@ gfcrequest_t *gfc_create() {
 
 // optional function for cleaup processing.
 void gfc_cleanup(gfcrequest_t **gfr) {
+  if (!gfr || !*gfr) return;
   free(*gfr);
-  // **gfr is freed in caller
+  *gfr = NULL;
 }
 
 /*
@@ -189,6 +189,13 @@ int gfc_perform(gfcrequest_t **gfr) {
       close(server_fd);
       return -1;
     }
+    if (n_recv == 0) { // handle server closed connection prematurely
+        fprintf(stderr, "Connection closed prematurely: expected %zu bytes, received %zu\n",
+                (*gfr)->file_len, (*gfr)->bytesreceived);
+        close(server_fd);
+        (*gfr)->status=GF_ERROR;
+        return -1; // signal error to caller
+    }
     buffer[offset+n_recv] = '\0'; // temporarily term the string to search for pattern
     if ((header_end = strstr(buffer+(max(offset-3,0)), "\r\n\r\n")) != NULL) {
       header_end += 3; // at the last \n
@@ -212,7 +219,9 @@ int gfc_perform(gfcrequest_t **gfr) {
   n_recv=0;
   while ((*gfr)->bytesreceived < ((*gfr)->file_len)) {
     ((*gfr)->bytesreceived) += (offset + n_recv);
-    (*gfr)->writefunc(buffer, offset + n_recv, (*gfr)->writearg);
+    if ((offset + n_recv) > 0) {
+      (*gfr)->writefunc(buffer, offset + n_recv, (*gfr)->writearg);
+    }
     offset = 0; // reset offset after process all bytes received in buffer
     printf("Processed total of %ld bytes\n", (*gfr)->bytesreceived);
     if ((*gfr)->bytesreceived >= ((*gfr)->file_len)) break;
@@ -220,6 +229,15 @@ int gfc_perform(gfcrequest_t **gfr) {
       perror("recv");
       close(server_fd);
       return -1;
+    }
+    if (n_recv == 0) { // premature close or exactly end-of-stream
+      if ((*gfr)->bytesreceived < (*gfr)->file_len) {
+        fprintf(stderr, "Connection closed prematurely: expected %zu bytes, received %zu\n",
+                (*gfr)->file_len, (*gfr)->bytesreceived);
+        close(server_fd);
+        return -1; // signal error to caller
+      }
+      break; // normal EOF after full file
     }
     printf("Received %ld bytes from server\n", n_recv);
   }
