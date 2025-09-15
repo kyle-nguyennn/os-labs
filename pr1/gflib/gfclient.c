@@ -57,35 +57,54 @@ void gfc_cleanup(gfcrequest_t **gfr) {
 }
 
 /*
- * Default header func: assume the full header fits within one message
- * After reading header the req->bytesreceived should point to the first byte of the payload
+ * Default header func: assume the full header fits within one buffer
  */ 
-
 void headerfunc(void* data, size_t len, void* arg) {
   char* header = (char*) data;
   printf("Header: %s\n", header);
   gfcrequest_t* req = (gfcrequest_t*) arg;
   printf("header length: %ld\n", len);
-  if (!header || (len < strlen(SCHEME)+2)) return;
-  // parse status
-  int start = strlen(SCHEME) + 1;
-  int i;
-  for (i=start; i<len && *((char*)header+i)!= ' '; ++i);
-  char* strstatus = (char*)malloc(i-start+1);
-  strncpy(strstatus, (char*)header + start, i-start);
-  strstatus[i-start] = '\0';
-  printf("Server status: %s\n", strstatus);
-  req->status = gfstatus_from_str(strstatus);
-  // parse file len
-  start = i+1;
-  for (i=start;i<len && *((char*)header+i)!= '\r'; ++i);
-  char* len_str = (char*)malloc(i-start+1);
-  strncpy(len_str, (char*)header+start, i-start);
-  len_str[i-start] = '\0';
-  req->file_len = atoi(len_str);
-  printf("File length: %ld\n", req->file_len);
-  free(strstatus);
-  free(len_str);
+  // Manually remove \r\n\r\n at the end
+  header[len-4] = '\0';
+  // Server's header must respect specs: GETFILE <status> <file_len>\r\n\r\n
+  char* token;
+  char* saveptr;
+  token = strtok_r(header, " ", &saveptr);
+  int cnt = 0;
+  char* parsed[3]; // response should have exactly 3 parts
+  while (token != NULL) {
+    if (cnt == 0) {
+      if (strcmp(token, SCHEME)) {
+        req->status = GF_INVALID;
+        return;
+      }
+    }
+    if (cnt == 1) {
+      req->status = gfstatus_from_str(token);
+    }
+    if (cnt == 2) {
+      if (req->status != GF_OK) {
+        req->status = GF_INVALID;
+        return;
+      }
+    }
+    if (cnt == 3) {
+      fprintf(stderr, "Header has more than 3 parts\n");
+      req->status = GF_INVALID;
+      return;
+    }
+    parsed[cnt++] = token; 
+    // printf("token: %s\n", token);
+    token = strtok_r(NULL, " ", &saveptr);
+  }
+  if (req->status == GF_OK){
+    if (cnt < 3) {
+      fprintf(stderr, "Header OK has less than 3 parts\n");
+      req->status = GF_INVALID;
+      return;
+    }
+    req->file_len = strtol(parsed[2], NULL, 10);
+  }
 }
 
 size_t gfc_get_filelen(gfcrequest_t **gfr) {
@@ -184,7 +203,7 @@ int gfc_perform(gfcrequest_t **gfr) {
   // Handle fragmented header. Read until detect \r\n\r\n. 
   // Assuming buffer size is large enough for full header, i.e. header len < 512
   while (!full_header) {
-    if ((n_recv=recv(server_fd, buffer+offset, sizeof(buffer)-offset, 0)) < 0) {
+    if ((n_recv=recv(server_fd, buffer+offset, sizeof(buffer)-offset-1, 0)) < 0) {
       perror("recv");
       close(server_fd);
       return -1;
@@ -193,7 +212,7 @@ int gfc_perform(gfcrequest_t **gfr) {
         fprintf(stderr, "Connection closed prematurely: expected %zu bytes, received %zu\n",
                 (*gfr)->file_len, (*gfr)->bytesreceived);
         close(server_fd);
-        (*gfr)->status=GF_ERROR;
+        (*gfr)->status=GF_INVALID;
         return -1; // signal error to caller
     }
     buffer[offset+n_recv] = '\0'; // temporarily term the string to search for pattern
@@ -209,11 +228,21 @@ int gfc_perform(gfcrequest_t **gfr) {
     } else {
       offset += n_recv;
     }
+    if (offset >= BUFSIZE-2) {
+      printf("Header larger than %d, malformed\n", BUFSIZE);
+      (*gfr)->status = GF_INVALID;
+      return -1;
+    }
   }
   (*gfr)->headerfunc(header, (*gfr)->header_len, (*gfr)->headerarg);
   printf("Processed %d bytes from server header. Left with %d bytes unprocessed\n", 
           (*gfr)->header_len, offset);
   free(header);
+
+  if ((*gfr)->status != GF_OK) {
+    close(server_fd);
+    return 0;
+  }
 
   // Handle data stream while server still sending by calling (*gfr)->writefunc
   n_recv=0;
