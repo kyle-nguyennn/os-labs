@@ -103,7 +103,21 @@ void headerfunc(void* data, size_t len, void* arg) {
       req->status = GF_INVALID;
       return;
     }
-    req->file_len = strtol(parsed[2], NULL, 10);
+    char *invalid_ptr;
+    req->file_len = strtol(parsed[2], &invalid_ptr, 10);
+    if (errno == ERANGE) {
+      fprintf(stderr, "Conversion of '%s' resulted in overflow/underflow.\n", parsed[2]);
+      req->status = GF_INVALID;
+      return;
+    }
+    if (invalid_ptr < parsed[2]+strlen(parsed[2])){
+      req->status = GF_INVALID;
+      if (invalid_ptr == parsed[2]) { // No conversion performed
+          fprintf(stderr, "Invalid conversion: '%s' -> No digits found.\n", parsed[2]);
+      } else {
+          fprintf(stderr, "Partial conversion: '%s' -> %ld (stopped at '%s')\n", parsed[2], req->file_len, invalid_ptr);
+      }
+    }
   }
 }
 
@@ -223,7 +237,7 @@ int gfc_perform(gfcrequest_t **gfr) {
       memcpy(header, buffer, (*gfr)->header_len);
       header[(*gfr)->header_len] = '\0';
       offset = (buffer+offset+n_recv) - 1 - header_end;
-      if (offset) memcpy(buffer, (header_end+1), offset);
+      if (offset) memmove(buffer, (header_end+1), offset);
       full_header = true;
     } else {
       offset += n_recv;
@@ -239,10 +253,11 @@ int gfc_perform(gfcrequest_t **gfr) {
           (*gfr)->header_len, offset);
   free(header);
 
-  if ((*gfr)->status != GF_OK) {
+  if ((*gfr)->status == GF_INVALID) {
     close(server_fd);
-    return 0;
+    return -1;
   }
+  if ((*gfr)->status != GF_OK) return 0; // For ERROR and FILE_NOT_FOUND
 
   // Handle data stream while server still sending by calling (*gfr)->writefunc
   n_recv=0;
