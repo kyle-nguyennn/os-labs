@@ -1,6 +1,7 @@
 
 #include "gfclient.h"
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <sys/socket.h>
 
@@ -9,6 +10,7 @@
  // Modify this file to implement the interface specified in
  // gfclient.h.
 
+#define max(a,b) (a>b)?a:b
 #define BUFSIZE 512
 #define SCHEME "GETFILE" // 7 bytes
 #define METHOD "GET"     // 3 bytes
@@ -174,29 +176,51 @@ int gfc_perform(gfcrequest_t **gfr) {
   free(message);
   // Handle first response by calling (*gfr)->headerfunc
   char buffer[BUFSIZE];
+  char* header;
+  int offset=0;
+  bool full_header=false;
+  char *header_end;
   ssize_t n_recv;
-  if ((n_recv=recv(server_fd, buffer, sizeof(buffer), 0)) < 0) {
+  // Handle fragmented header. Read until detect \r\n\r\n. 
+  // Assuming buffer size is large enough for full header, i.e. header len < 512
+  while (((n_recv=recv(server_fd, buffer+offset, sizeof(buffer)-offset, 0)) > 0)
+            && !full_header) {
+    buffer[offset+n_recv] = '\0'; // temporarily term the string to search for pattern
+    if ((header_end = strstr(buffer+(max(offset-3,0)), "\r\n\r\n")) != NULL) {
+      header_end += 3; // at the last \n
+      (*gfr)->header_len = (header_end-buffer)+1;
+      header = (char*)malloc((*gfr)->header_len);
+      memcpy(header, buffer, (*gfr)->header_len);
+      offset = (buffer+offset+n_recv) - 1 - header_end;
+      full_header = true;
+    } else {
+      offset += n_recv;
+    }
+  }
+  if (n_recv < 0) {
     perror("recv");
     close(server_fd);
     return -1;
   }
   printf("First reponse: %ld bytes\n", n_recv);
-  (*gfr)->headerfunc(buffer, n_recv, (*gfr)->headerarg);
+  (*gfr)->headerfunc(header, (*gfr)->header_len, (*gfr)->headerarg);
   printf("Processed %d bytes from server header\n", (*gfr)->header_len);
+  free(header);
 
   // Handle the rest of the message if more than header was sent
-  if ((*gfr)->header_len < n_recv) {
-    printf("Handle the rest of %ld bytes in the first message\n", n_recv-(*gfr)->header_len);
-    int offset = (*gfr)->header_len;
-    (*gfr)->writefunc(buffer+offset, n_recv-offset, (*gfr)->writearg);
-    (*gfr)->bytesreceived = n_recv-(*gfr)->header_len;
-  }
+  // if ((*gfr)->header_len < n_recv) {
+  //   printf("Handle the rest of %ld bytes in the first message\n", n_recv-(*gfr)->header_len);
+  //   int offset = (*gfr)->header_len;
+  //   (*gfr)->writefunc(buffer+offset, n_recv-offset, (*gfr)->writearg);
+  //   (*gfr)->bytesreceived = n_recv-(*gfr)->header_len;
+  // }
 
   // Handle data stream while server still sending by calling (*gfr)->writefunc
-  while ((n_recv=recv(server_fd, buffer, sizeof(buffer), 0)) > 0) {
+  while ((n_recv=recv(server_fd, buffer+offset, sizeof(buffer)-offset, 0)) > 0) {
     printf("Received %ld bytes from server\n", n_recv);
-    ((*gfr)->bytesreceived) += n_recv;
-    (*gfr)->writefunc(buffer, n_recv, (*gfr)->writearg);
+    ((*gfr)->bytesreceived) += (offset + n_recv);
+    (*gfr)->writefunc(buffer, offset + n_recv, (*gfr)->writearg);
+    offset = 0; // reset offset after process all bytes received in buffer
     printf("Processed total of %ld bytes\n", (*gfr)->bytesreceived);
     if ((*gfr)->bytesreceived >= (*gfr)->file_len) break;
   }
