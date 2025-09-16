@@ -160,7 +160,6 @@ int gfserver_sendheader_not_ok(gfserver_t **gfs, int fd, gfstatus_t status) {
 
     if (send(fd, message, strlen(message), 0) < 0) {
         perror("recv");
-        close(fd);
         free (message);
         return -1;
     }
@@ -197,14 +196,56 @@ void gfserver_serve(gfserver_t **gfs){
         struct sockaddr_in client_addr;
         socklen_t client_addr_len = sizeof(client_addr);
         int client_fd = accept(server_fd, (struct sockaddr*) &client_addr, &client_addr_len);
-        size_t n_recv = recv(client_fd, buffer, BUFSIZE, 0);
-        if (n_recv < 0) {
-            perror("recv");
-            close(client_fd);
+        // Waiting for request from client, set request timeout to 3s
+        struct timeval tv;
+        tv.tv_sec = 3;   //  seconds
+        tv.tv_usec = 0;  // + microseconds
+        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        int offset = 0;
+        bool full_header=false;
+        char *header_end;
+        bool abort = false;
+        // int bytesreceived = 0; // TODO: need to record if header is larger than BUFSIZE, in place of offset
+        ssize_t n_recv;
+        // Handle fragmented header. Read until detect \r\n\r\n. 
+        // Assuming buffer size is large enough for full header, i.e. header len < 512
+        // Susceptible to DOS attack, where clients only connect without sending any request
+        // Add timeout (optional)
+        // TODO: assumption is wrong as need to support Unix PATH_MAX = 4096 
+        while (!full_header) {
+            if ((n_recv=recv(client_fd, buffer+offset, sizeof(buffer)-offset-1, 0)) < 0) {
+                if (errno == EWOULDBLOCK || errno == EAGAIN) {
+                    printf("recv timeout. Proceed with %d bytes received", offset);
+                    break;
+                } else {
+                    perror("recv error");
+                    close(client_fd);
+                    abort = true;
+                    break;
+                }
+            }
+            if (n_recv == 0) { // handle client closed connection prematurely
+                fprintf(stderr, "Connection closed prematurely: received %d\n", offset);
+                close(client_fd);
+                abort = true;
+                break;
+            }
+            // bytesreceived += n_recv;
+            printf("Received %ld bytes. Total %d bytes\n", n_recv, offset);
+            buffer[offset+n_recv] = '\0'; // temporarily term the string to search for pattern
+            if ((header_end = strstr(buffer+(max(offset-3,0)), "\r\n\r\n")) != NULL) {
+                header_end += 3; // at the last \n
+                full_header = true;
+            }
+            offset += n_recv;
+            if (offset >= BUFSIZE-2) {
+                // TODO: handle this by copying to another larger header buffer
+                printf("Header larger than %d, malformed\n", BUFSIZE);
+                break;
+            }
         }
-        buffer[n_recv] = '\0';
-        printf("Received request from client %d: %s\n", client_fd, buffer);
-        // parse request, assuming request comes in 1 message -> might be false
+        if (abort) continue;
+        // parse request
         gfrequest_t request;
         if (parse_request(&request, buffer) == -1) {
             if (gfserver_sendheader_not_ok(gfs, client_fd, GF_INVALID) < 0) {
