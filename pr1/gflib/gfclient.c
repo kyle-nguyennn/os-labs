@@ -9,11 +9,6 @@
  // Modify this file to implement the interface specified in
  // gfclient.h.
 
-#define max(a,b) (a>b)?a:b
-#define BUFSIZE 512
-#define SCHEME "GETFILE" // 7 bytes
-#define METHOD "GET"     // 3 bytes
-
 struct gfcrequest_t {
   const char* server;
   unsigned short port;

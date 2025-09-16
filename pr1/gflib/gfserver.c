@@ -3,14 +3,11 @@
 #include "gfserver.h"
 #include <sys/socket.h>
 #include <string.h>
+#include <stdbool.h>
 #include "gfserver-student.h"
 
 // Modify this file to implement the interface specified in
 // gfserver.h.
-
-#define BUFSIZE 512
-#define SCHEME "GETFILE" // 7 bytes
-#define METHOD "GET"     // 3 bytes
 
 typedef struct gfrequest_t gfrequest_t;
 struct gfrequest_t {
@@ -130,6 +127,10 @@ int parse_request(gfrequest_t* req, char* buffer) {
             }
         }
         if (cnt == 2) {
+            if (token[0] != '/') {
+                fprintf(stderr, "Invalid path: %s\n", token);
+                return -1;
+            }
             req->path = token;
         }
         if (cnt == 3) {

@@ -18,4 +18,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#define max(a,b) (a>b)?a:b
+#define BUFSIZE 512
+#define SCHEME "GETFILE" // 7 bytes
+#define METHOD "GET"     // 3 bytes
+
  #endif // __GF_STUDENT_H__
