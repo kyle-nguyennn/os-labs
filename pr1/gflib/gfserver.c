@@ -35,6 +35,9 @@ struct gfcontext_t {
 };
 
 void gfs_abort(gfcontext_t **ctx){
+    close((*ctx)->client_fd);
+    free(*ctx);
+    *ctx = NULL;
 }
 
 ssize_t gfs_send(gfcontext_t **ctx, const void *data, size_t len){
@@ -258,7 +261,10 @@ void gfserver_serve(gfserver_t **gfs){
         gfcontext_t* ctx = (gfcontext_t*)malloc(sizeof(gfcontext_t));
         // call handler to get file from path
         ctx->client_fd = client_fd;
-        (*gfs)->handler(&ctx, request.path, (*gfs)->handlerarg);
+        if ((*gfs)->handler(&ctx, request.path, (*gfs)->handlerarg) < 0) {
+            fprintf(stderr, "Error in handler\n");
+        }
+        free(ctx);
     }
 }
 
