@@ -71,7 +71,7 @@ void headerfunc(void* data, size_t len, void* arg) {
   char* saveptr;
   token = strtok_r(header, " ", &saveptr);
   int cnt = 0;
-  char* parsed[3]; // response should have exactly 3 parts
+  char* parsed[3]; // response OK should have exactly 3 parts
   while (token != NULL) {
     if (cnt == 0) {
       if (strcmp(token, SCHEME)) {

@@ -9,7 +9,8 @@
 // gfserver.h.
 
 #define BUFSIZE 512
-#define SCHEME "GETFILE"
+#define SCHEME "GETFILE" // 7 bytes
+#define METHOD "GET"     // 3 bytes
 
 typedef struct gfrequest_t gfrequest_t;
 struct gfrequest_t {
@@ -40,13 +41,11 @@ void gfs_abort(gfcontext_t **ctx){
 }
 
 ssize_t gfs_send(gfcontext_t **ctx, const void *data, size_t len){
-    // not yet implemented
+    // student implemented
     return send((*ctx)->client_fd, data, len, 0);
 }
 
-ssize_t gfs_sendheader(gfcontext_t **ctx, gfstatus_t status, size_t file_len){
-    // not yet implemented
-    char strstatus[19];
+void gfstatus_str(gfstatus_t status, char* strstatus) {
     switch (status) {
         case 200: sprintf(strstatus, "OK"); break;
         case 400: sprintf(strstatus, "FILE_NOT_FOUND"); break;
@@ -54,6 +53,12 @@ ssize_t gfs_sendheader(gfcontext_t **ctx, gfstatus_t status, size_t file_len){
         case 600: sprintf(strstatus, "INVALID"); break;
         default: sprintf(strstatus, "INVALID");
     }
+}
+
+ssize_t gfs_sendheader(gfcontext_t **ctx, gfstatus_t status, size_t file_len){
+    // student implemented
+    char strstatus[19];
+    gfstatus_str(status, strstatus);
     char file_len_str[21];
     sprintf(file_len_str, "%ld", file_len);
     int header_len = strlen(SCHEME) + 1 + strlen(strstatus) + ((status==GF_OK)?(strlen(file_len_str)+1):0) + 4;
@@ -89,23 +94,77 @@ void gfserver_set_handler(gfserver_t **gfs, gfh_error_t (*handler)(gfcontext_t *
 void gfserver_set_handlerarg(gfserver_t **gfs, void* arg){
     (*gfs)->handlerarg = arg;
 }
-void parse_request(gfrequest_t* request, char* buffer) {
-    // TODO: validate request later
+
+int parse_request(gfrequest_t* req, char* buffer) {
     // Assume client's request respect specs: GETFILE GET <path>\r\n\r\n
+    // buffer is a null-terminated string
+    printf("Client request: %s\n", buffer);
+    // Checking and of request
+    char* header_end;
+    if ((header_end = strstr(buffer, "\r\n\r\n")) == NULL) {
+        fprintf(stderr, "Request header does not end with CR LF CR LF\n");
+        return -1;
+    }
+    if ((header_end - buffer) != strlen(buffer)-4) {
+        fprintf(stderr, "File path contains CR LF CR LF\n");
+        return -1;
+    }
+    buffer[strlen(buffer) - 4] = '\0'; // manually removed \r\n\r\n
+
     char* token;
     char* saveptr;
     token = strtok_r(buffer, " ", &saveptr);
+    int cnt = 0;
     char* parsed[3]; // request should have exactly 3 parts
-    for (int i=0; i<3; ++i) {
-        parsed[i] = token; 
+    while (token != NULL) {
+        if (cnt == 0) {
+            if (strcmp(token, SCHEME)) {
+                fprintf(stderr, "Invalid scheme: %s\n", token);
+                return -1;
+            }
+        }
+        if (cnt == 1) {
+            if (strcmp(token, METHOD)) {
+                fprintf(stderr, "Invalid method: %s\n", token);
+                return -1;
+            }
+        }
+        if (cnt == 2) {
+            req->path = token;
+        }
+        if (cnt == 3) {
+            fprintf(stderr, "Header has more than 3 parts\n");
+            return -1;
+        }
+        parsed[cnt++] = token; 
         // printf("token: %s\n", token);
         token = strtok_r(NULL, " ", &saveptr);
     }
-    request->scheme = parsed[0];
-    request->method = parsed[1];
-    int path_len = strlen(parsed[2]);
-    parsed[2][path_len-3] = '\0'; // remove \r\n\r\n at the end
-    request->path = parsed[2];
+    if (cnt < 3) {
+        fprintf(stderr, "Header has fewer than 3 parts\n");
+        return -1;
+    }
+    req->scheme = parsed[0];
+    req->method = parsed[1];
+
+    return 0;
+}
+
+int gfserver_sendheader_not_ok(gfserver_t **gfs, int fd, gfstatus_t status) {
+    char strstatus[19];
+    gfstatus_str(status, strstatus);
+    printf("Status: %s\n", strstatus);
+    char* message = (char*)malloc(7 + 1 + strlen(strstatus) + 4 + 1);
+    sprintf(message, "%s %s\r\n\r\n", SCHEME, strstatus);
+
+    if (send(fd, message, strlen(message), 0) < 0) {
+        perror("recv");
+        close(fd);
+        free (message);
+        return -1;
+    }
+    free(message);
+    return 0;
 }
 
 void gfserver_serve(gfserver_t **gfs){
@@ -144,12 +203,18 @@ void gfserver_serve(gfserver_t **gfs){
         }
         buffer[n_recv] = '\0';
         printf("Received request from client %d: %s\n", client_fd, buffer);
-        // parse request
+        // parse request, assuming request comes in 1 message -> might be false
         gfrequest_t request;
-        parse_request(&request, buffer);
+        if (parse_request(&request, buffer) == -1) {
+            if (gfserver_sendheader_not_ok(gfs, client_fd, GF_INVALID) < 0) {
+                fprintf(stderr, "Error sending\n");
+            }
+            close(client_fd);
+            continue;
+        }
         print_request(&request);
-        // call handler to get file from path
         gfcontext_t* ctx = (gfcontext_t*)malloc(sizeof(gfcontext_t));
+        // call handler to get file from path
         ctx->client_fd = client_fd;
         (*gfs)->handler(&ctx, request.path, (*gfs)->handlerarg);
     }
