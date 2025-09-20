@@ -2,10 +2,12 @@
 #include <pthread.h>
 
 #include "gfclient-student.h"
+#include "steque.h"
 #include "workload.h"
 
 #define MAX_THREADS 1024
 #define PATH_BUFFER_SIZE 512
+#define TASK_BUFFER_SIZE 512
 
 #define USAGE                                                             \
   "usage:\n"                                                              \
@@ -31,7 +33,6 @@ static struct option gLongOptions[] = {
 typedef struct {
   char* server;
   unsigned short port;
-  int n_requests;
 } worker_args_t;
 
 static void Usage() { fprintf(stderr, "%s", USAGE); }
@@ -76,8 +77,10 @@ static void writecb(void *data, size_t data_len, void *arg) {
   fwrite(data, 1, data_len, file);
 }
 
-static unsigned short int counter = 0;
-static pthread_mutex_t counter_mutex;
+steque_t tasks;
+pthread_mutex_t m_tasks; // protect the tasks
+pthread_cond_t c_worker;
+pthread_cond_t c_boss;
 
 int download(char* server, int port, char* req_path) {
   gfcrequest_t *gfr = NULL;
@@ -125,14 +128,17 @@ void* download_thread(void* args) {
   char* req_path;
   while (1) {
     // acquire mutex here to check for end of workload and get next req_path
+    
     req_path = NULL;
-    int request_id = -1;
-    pthread_mutex_lock(&counter_mutex);
-    if (counter < worker_args->n_requests) {
-      req_path =  workload_get_path();
-      request_id = counter++;
+    steque_item item;
+    pthread_mutex_lock(&m_tasks);
+    // Do we need sanity checks here
+    while (steque_isempty(&tasks)) {
+      pthread_cond_wait(&c_boss, &m_tasks);
     }
-    pthread_mutex_unlock(&counter_mutex);
+    item = steque_pop(&tasks);
+    pthread_mutex_unlock(&m_tasks);
+    req_path = (char*)item;
     
     if (req_path != NULL){
       if (strlen(req_path) > PATH_BUFFER_SIZE) {
@@ -143,7 +149,8 @@ void* download_thread(void* args) {
       if (0 > download(worker_args->server, worker_args->port, req_path)) {
         fprintf(stderr, "Error downloading file %s\n", req_path);
       } else {
-        printf("Request %d complete\n", request_id);
+        printf("Download complete: %s\n", req_path);
+        pthread_cond_signal(&c_worker); // tell boss that task has finished
       }
     } else {
       return NULL;
@@ -211,17 +218,26 @@ int main(int argc, char **argv) {
   gfc_global_init();
 
   // initialize results
-  pthread_mutex_init(&counter_mutex, NULL);
+  pthread_mutex_init(&m_tasks, NULL);
+  pthread_cond_init(&c_boss, NULL);
+  pthread_cond_init(&c_worker, NULL);
+  
 
   // add your threadpool creation here
   pthread_t* thread_pool = (pthread_t*)malloc(nthreads * sizeof(pthread_t));
   worker_args_t args;
   args.server = server;
   args.port = port;
-  args.n_requests = nrequests; // read-only args so can share
   for (int i=0; i<nthreads; i++) {
     pthread_create(&thread_pool[i], NULL, download_thread, &args);
   }
+  // boss starts enqueuing tasks to the queue
+  // TODO: this is a crude way to assign tasks, refactor to use BATCH_SIZE
+  for (int i=0; i<nrequests; i++){
+    char* req_path = workload_get_path();
+    steque_enqueue(&tasks, req_path);
+  }
+  pthread_cond_broadcast(&c_boss);
   for (int i=0; i<nthreads; i++) {
     pthread_join(thread_pool[i], NULL);
   }
