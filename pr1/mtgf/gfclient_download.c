@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <pthread.h>
+#include <stdbool.h>
 
 #include "gfclient-student.h"
 #include "steque.h"
@@ -81,6 +82,7 @@ steque_t tasks;
 pthread_mutex_t m_tasks; // protect the tasks
 pthread_cond_t c_worker;
 pthread_cond_t c_boss;
+static bool work_done = false; // read-only for worker
 
 int download(char* server, int port, char* req_path) {
   gfcrequest_t *gfr = NULL;
@@ -126,9 +128,8 @@ int download(char* server, int port, char* req_path) {
 void* download_thread(void* args) {
   worker_args_t* worker_args = (worker_args_t*)args; // constant throughout the thread's life
   char* req_path;
-  while (1) {
+  while (!work_done) {
     // acquire mutex here to check for end of workload and get next req_path
-    
     req_path = NULL;
     steque_item item;
     pthread_mutex_lock(&m_tasks);
@@ -156,6 +157,7 @@ void* download_thread(void* args) {
       return NULL;
     }
   }
+  return NULL;
 }
 
 /* Main ========================================================= */
@@ -238,11 +240,14 @@ int main(int argc, char **argv) {
     steque_enqueue(&tasks, req_path);
   }
   pthread_cond_broadcast(&c_boss);
-  for (int i=0; i<nthreads; i++) {
-    pthread_join(thread_pool[i], NULL);
+  // Busy loop checking status of tasks
+  while (!steque_isempty(&tasks)) {
+      sleep(100);
   }
-  // TODO: handle workers go rogue
   printf("Doanloaded all files.\n");
+  work_done = true;
+  // Wait for workers to gracefully exit
+  for (int i=0; i<nthreads; i++) pthread_join(thread_pool[i], NULL);
   // clean up
   free(thread_pool);
 
