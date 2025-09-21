@@ -135,7 +135,16 @@ void* download_thread(void* args) {
     pthread_mutex_lock(&m_tasks);
     // Do we need sanity checks here
     while (steque_isempty(&tasks)) {
-      pthread_cond_wait(&c_boss, &m_tasks);
+      struct timespec abstime;
+      clock_gettime(CLOCK_REALTIME, &abstime); // Get current time
+      abstime.tv_sec += 3; // Add 5 seconds to the current time for the timeout
+      int ret = pthread_cond_timedwait(&c_boss, &m_tasks, &abstime);
+      if (ret == ETIMEDOUT) {
+          // Handle timeout
+          if (work_done) {
+            return NULL;
+          }
+      }
     }
     item = steque_pop(&tasks);
     pthread_mutex_unlock(&m_tasks);
@@ -247,12 +256,8 @@ int main(int argc, char **argv) {
   printf("Doanloaded all files.\n");
   work_done = true;
   // Wait for workers to gracefully exit
-  sleep(1);
-  // Force exit if thread is still waiting on c_prod
-  //
-  for (int i=0; i<nthreads; i++) {
-    pthread_cancel(thread_pool[i]);
-  }
+  pthread_cond_broadcast(&c_boss);
+
   for (int i=0; i<nthreads; i++) pthread_join(thread_pool[i], NULL);
   // clean up
   free(thread_pool);
