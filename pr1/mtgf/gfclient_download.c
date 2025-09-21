@@ -247,6 +247,12 @@ int main(int argc, char **argv) {
   printf("Doanloaded all files.\n");
   work_done = true;
   // Wait for workers to gracefully exit
+  sleep(1);
+  // Force exit if thread is still waiting on c_prod
+  //
+  for (int i=0; i<nthreads; i++) {
+    pthread_cancel(thread_pool[i]);
+  }
   for (int i=0; i<nthreads; i++) pthread_join(thread_pool[i], NULL);
   // clean up
   free(thread_pool);
