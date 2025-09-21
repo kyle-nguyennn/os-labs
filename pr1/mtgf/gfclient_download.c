@@ -100,7 +100,7 @@ int download(char* server, int port, char* req_path) {
   gfc_set_writearg(&gfr, file);
   gfc_set_writefunc(&gfr, writecb);
 
-  fprintf(stdout, "Requesting %s%s\n", server, req_path);
+  fprintf(stdout, "Requesting %s:%s\n", server, req_path);
 
   if (0 > (returncode = gfc_perform(&gfr))) {
     fprintf(stdout, "gfc_perform returned an error %d\n", returncode);
@@ -108,6 +108,7 @@ int download(char* server, int port, char* req_path) {
     if (0 > unlink(local_path))
       fprintf(stderr, "warning: unlink failed on %s\n", local_path);
   } else {
+    printf("gfc_perform completed without error\n");
     fclose(file);
   }
 
@@ -122,7 +123,7 @@ int download(char* server, int port, char* req_path) {
           gfc_get_filelen(&gfr));
 
   gfc_cleanup(&gfr);
-  return 0;
+  return returncode;
 }
 
 void* download_thread(void* args) {
@@ -142,6 +143,7 @@ void* download_thread(void* args) {
       if (ret == ETIMEDOUT) {
           // Handle timeout
           if (work_done) {
+            printf("thread exited\n");
             return NULL;
           }
       }
@@ -163,9 +165,11 @@ void* download_thread(void* args) {
         pthread_cond_signal(&c_worker); // tell boss that task has finished
       }
     } else {
+      printf("thread exited\n");
       return NULL;
     }
   }
+  printf("thread exited\n");
   return NULL;
 }
 
@@ -250,15 +254,12 @@ int main(int argc, char **argv) {
   }
   pthread_cond_broadcast(&c_boss);
   // Busy loop checking status of tasks
-  while (!steque_isempty(&tasks)) {
-      sleep(100);
-  }
-  printf("Doanloaded all files.\n");
   work_done = true;
   // Wait for workers to gracefully exit
   pthread_cond_broadcast(&c_boss);
 
   for (int i=0; i<nthreads; i++) pthread_join(thread_pool[i], NULL);
+  printf("Doanloaded all files.\n");
   // clean up
   free(thread_pool);
 
