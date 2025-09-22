@@ -135,18 +135,14 @@ void* download_thread(void* args) {
     // Do we need sanity checks here
     pthread_mutex_lock(&m_tasks);
     while (steque_isempty(&tasks)) {
-      struct timespec abstime;
-      clock_gettime(CLOCK_REALTIME, &abstime); // Get current time
-      abstime.tv_sec += 3; // Add 5 seconds to the current time for the timeout
-      int ret = pthread_cond_timedwait(&c_boss, &m_tasks, &abstime);
-      if (ret == ETIMEDOUT) {
-          // Handle timeout
-        if (work_done) {
-          pthread_mutex_unlock(&m_tasks);
-          fprintf(stdout, "thread exited\n");
-          return NULL;
-        }
+      // struct timespec abstime;
+      // clock_gettime(CLOCK_REALTIME, &abstime); // Get current time
+      // abstime.tv_sec += 3; // Add 5 seconds to the current time for the timeout
+      pthread_cond_wait(&c_boss, &m_tasks);
+      if (work_done) {
         pthread_mutex_unlock(&m_tasks);
+        fprintf(stdout, "thread exited\n");
+        return NULL;
       } else {
         fprintf(stdout, "Thread acquired lock\n");
         break;
