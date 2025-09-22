@@ -80,7 +80,6 @@ static void writecb(void *data, size_t data_len, void *arg) {
 
 steque_t tasks;
 pthread_mutex_t m_tasks; // protect the tasks
-pthread_cond_t c_worker;
 pthread_cond_t c_boss;
 static bool work_done = false; // read-only for worker
 
@@ -133,24 +132,30 @@ void* download_thread(void* args) {
     // acquire mutex here to check for end of workload and get next req_path
     req_path = NULL;
     steque_item item;
-    pthread_mutex_lock(&m_tasks);
     // Do we need sanity checks here
     while (steque_isempty(&tasks)) {
       struct timespec abstime;
       clock_gettime(CLOCK_REALTIME, &abstime); // Get current time
       abstime.tv_sec += 3; // Add 5 seconds to the current time for the timeout
+      pthread_mutex_lock(&m_tasks);
       int ret = pthread_cond_timedwait(&c_boss, &m_tasks, &abstime);
       if (ret == ETIMEDOUT) {
           // Handle timeout
-          if (work_done) {
-            printf("thread exited\n");
-            return NULL;
-          }
+        if (work_done) {
+          pthread_mutex_unlock(&m_tasks);
+          fprintf(stdout, "thread exited\n");
+          return NULL;
+        }
+        pthread_mutex_unlock(&m_tasks);
+      } else {
+        fprintf(stdout, "Thread acquired lock\n");
+        break;
       }
     }
     item = steque_pop(&tasks);
     pthread_mutex_unlock(&m_tasks);
     req_path = (char*)item;
+    fprintf(stdout, "Downloading file %s\n", req_path);
     
     if (req_path != NULL){
       if (strlen(req_path) > PATH_BUFFER_SIZE) {
@@ -162,11 +167,9 @@ void* download_thread(void* args) {
         fprintf(stderr, "Error downloading file %s\n", req_path);
       } else {
         printf("Download complete: %s\n", req_path);
-        pthread_cond_signal(&c_worker); // tell boss that task has finished
       }
     } else {
-      printf("thread exited\n");
-      return NULL;
+      printf("req_path is NULL\n");
     }
   }
   printf("thread exited\n");
@@ -235,7 +238,6 @@ int main(int argc, char **argv) {
   // initialize results
   pthread_mutex_init(&m_tasks, NULL);
   pthread_cond_init(&c_boss, NULL);
-  pthread_cond_init(&c_worker, NULL);
   
 
   // add your threadpool creation here
@@ -243,23 +245,28 @@ int main(int argc, char **argv) {
   worker_args_t args;
   args.server = server;
   args.port = port;
+  fprintf(stdout, "Starting %d threads\n", nthreads);
   for (int i=0; i<nthreads; i++) {
     pthread_create(&thread_pool[i], NULL, download_thread, &args);
   }
   // boss starts enqueuing tasks to the queue
   // TODO: this is a crude way to assign tasks, refactor to use BATCH_SIZE
+  fprintf(stdout, "Processing %d requests\n", nrequests);
   for (int i=0; i<nrequests; i++){
     char* req_path = workload_get_path();
     steque_enqueue(&tasks, req_path);
   }
   pthread_cond_broadcast(&c_boss);
   // Busy loop checking status of tasks
+  while (!steque_isempty(&tasks)) {
+    sleep(1000);
+  }
   work_done = true;
   // Wait for workers to gracefully exit
   pthread_cond_broadcast(&c_boss);
 
   for (int i=0; i<nthreads; i++) pthread_join(thread_pool[i], NULL);
-  printf("Doanloaded all files.\n");
+  fprintf(stdout, "Downloaded all files.\n");
   // clean up
   free(thread_pool);
 
