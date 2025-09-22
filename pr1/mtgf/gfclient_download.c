@@ -133,11 +133,11 @@ void* download_thread(void* args) {
     req_path = NULL;
     steque_item item;
     // Do we need sanity checks here
+    pthread_mutex_lock(&m_tasks);
     while (steque_isempty(&tasks)) {
       struct timespec abstime;
       clock_gettime(CLOCK_REALTIME, &abstime); // Get current time
       abstime.tv_sec += 3; // Add 5 seconds to the current time for the timeout
-      pthread_mutex_lock(&m_tasks);
       int ret = pthread_cond_timedwait(&c_boss, &m_tasks, &abstime);
       if (ret == ETIMEDOUT) {
           // Handle timeout
