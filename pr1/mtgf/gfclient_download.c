@@ -81,7 +81,7 @@ static void writecb(void *data, size_t data_len, void *arg) {
 steque_t tasks;
 pthread_mutex_t m_tasks; // protect the tasks
 pthread_cond_t c_boss;
-static bool work_done = false; // read-only for worker
+// static bool work_done = false; // read-only for worker
 
 int download(char* server, int port, char* req_path) {
   gfcrequest_t *gfr = NULL;
@@ -128,7 +128,7 @@ int download(char* server, int port, char* req_path) {
 void* download_thread(void* args) {
   worker_args_t* worker_args = (worker_args_t*)args; // constant throughout the thread's life
   char* req_path;
-  while (!work_done) {
+  while (1) {
     // acquire mutex here to check for end of workload and get next req_path
     req_path = NULL;
     steque_item item;
@@ -139,14 +139,21 @@ void* download_thread(void* args) {
       // clock_gettime(CLOCK_REALTIME, &abstime); // Get current time
       // abstime.tv_sec += 3; // Add 5 seconds to the current time for the timeout
       pthread_cond_wait(&c_boss, &m_tasks);
-      if (work_done) {
-        pthread_mutex_unlock(&m_tasks);
-        fprintf(stdout, "thread exited\n");
-        return NULL;
-      } else {
-        fprintf(stdout, "Thread acquired lock\n");
-        break;
-      }
+      // if (work_done) {
+      //   pthread_mutex_unlock(&m_tasks);
+      //   fprintf(stdout, "thread exited\n");
+      //   return NULL;
+      // } else {
+      //   fprintf(stdout, "Thread acquired lock\n");
+      //   break;
+      // }
+    }
+    // peak at the front to check for poison pill
+    item = steque_front(&tasks);
+    if (strcmp((char*)item, "done") == 0) {
+      fprintf(stdout, "Workload done\n");
+      pthread_mutex_unlock(&m_tasks);
+      return NULL;
     }
     item = steque_pop(&tasks);
     pthread_mutex_unlock(&m_tasks);
@@ -252,14 +259,17 @@ int main(int argc, char **argv) {
     char* req_path = workload_get_path();
     steque_enqueue(&tasks, req_path);
   }
+  // poison pill to signal end of workload
+  char* poison_pill = "done";
+  steque_enqueue(&tasks, poison_pill);
   pthread_cond_broadcast(&c_boss);
   // Busy loop checking status of tasks
-  while (!steque_isempty(&tasks)) {
-    sleep(1000);
-  }
-  work_done = true;
+  // while (!steque_isempty(&tasks)) {
+  //   sleep(1000);
+  // }
+  // work_done = true;
   // Wait for workers to gracefully exit
-  pthread_cond_broadcast(&c_boss);
+  // pthread_cond_broadcast(&c_boss);
 
   for (int i=0; i<nthreads; i++) pthread_join(thread_pool[i], NULL);
   fprintf(stdout, "Downloaded all files.\n");
