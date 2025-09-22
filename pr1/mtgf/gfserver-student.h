@@ -8,6 +8,7 @@
 #include "gfserver.h"
 #include "content.h"
 
+typedef struct handler_args_t handler_args_t;
 
 void init_threads(size_t numthreads);
 void cleanup_threads();

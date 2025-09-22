@@ -32,6 +32,10 @@ static void _sig_handler(int signo) {
   }
 }
 
+struct handler_args_t {
+  int nthreads;
+};
+
 /* Main ========================================================= */
 int main(int argc, char **argv) {
   char *content_map = "content.txt";
@@ -101,6 +105,10 @@ int main(int argc, char **argv) {
   gfserver_set_port(&gfs, port);
   gfserver_set_maxpending(&gfs, 24);
   gfserver_set_handler(&gfs, gfs_handler);
+  // set handler args
+  handler_args_t handler_args;
+  handler_args.nthreads = nthreads;
+
   gfserver_set_handlerarg(&gfs, NULL);  // doesn't have to be NULL!
 
   /*Loops forever*/
