@@ -8,7 +8,16 @@
 #include "gfserver.h"
 #include "content.h"
 
+typedef struct handler_args handler_args_t;
+
 void init_threads(size_t numthreads);
 void cleanup_threads();
+
+#ifdef GFSERVER_PRIVATE
+struct handler_args {
+  int nthreads;
+};
+#endif
+
 
 #endif // __GF_SERVER_STUDENT_H__

@@ -1,5 +1,5 @@
+#define GFSERVER_PRIVATE
 #include <stdlib.h>
-
 #include "gfserver-student.h"
 
 #define USAGE                                                                                     \

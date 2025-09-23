@@ -1,3 +1,4 @@
+#define GFSERVER_PRIVATE
 #include "gfserver-student.h"
 #include "gf-student.h"
 #include "workload.h"
