@@ -32,10 +32,6 @@ static void _sig_handler(int signo) {
   }
 }
 
-struct handler_args_t {
-  int nthreads;
-};
-
 /* Main ========================================================= */
 int main(int argc, char **argv) {
   char *content_map = "content.txt";
@@ -109,7 +105,7 @@ int main(int argc, char **argv) {
   handler_args_t handler_args;
   handler_args.nthreads = nthreads;
 
-  gfserver_set_handlerarg(&gfs, NULL);  // doesn't have to be NULL!
+  gfserver_set_handlerarg(&gfs, &handler_args);  // doesn't have to be NULL!
 
   /*Loops forever*/
   gfserver_serve(&gfs);

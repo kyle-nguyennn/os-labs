@@ -17,5 +17,11 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/signal.h>
+#include <pthread.h>
+
+
+typedef struct handler_args handler_args_t;
+// get mutex for a file descriptor. If new fd, will initialize the mutex and return
+pthread_mutex_t* fdlock_get(int fd);
 
  #endif // __GF_STUDENT_H__
