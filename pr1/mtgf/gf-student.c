@@ -11,7 +11,9 @@ size_t cap = 0;
 pthread_mutex_t* fdlock_get(int fd){
   if (fdlock_registry == NULL) {
     // first time init registry: default to 1024 slots
-    fdlock_registry = calloc(1024, sizeof(pthread_mutex_t*));
+    cap = 1024;
+    printf("Init fdlock_registry to %ld slots\n", cap);
+    fdlock_registry = calloc(cap, sizeof(pthread_mutex_t*));
   }
   if (fd > cap) {
     // TODO: re-alloc registry, x2 size
@@ -26,6 +28,7 @@ pthread_mutex_t* fdlock_get(int fd){
   }
   if (fdlock_registry[fd] == NULL) {
     // TODO: acquire m_registry to avoid 2 thread init lock at the same time
+    fdlock_registry[fd] = malloc(sizeof(pthread_mutex_t**));
     pthread_mutex_init(fdlock_registry[fd], NULL);
   }
   return fdlock_registry[fd];

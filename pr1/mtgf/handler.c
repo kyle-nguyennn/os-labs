@@ -37,6 +37,8 @@ void* worker(void* arg) {
   clock_gettime(CLOCK_REALTIME, &timeout_time); // Get current time
   timeout_time.tv_sec += 30; // Add 3 seconds to the current time
 
+  fprintf(stdout, "Thread started\n");
+
   while (1) {
     pthread_mutex_lock(&m_tasks);
     while (steque_isempty(&tasks)) {
@@ -47,12 +49,15 @@ void* worker(void* arg) {
     pthread_mutex_unlock(&m_tasks);
     
     int fd = (int)*((int*)item);
+    fprintf(stdout, "Worker processing %d\n", (int)fd);
     // try to acquire lock for fd for 3s;
     pthread_mutex_t* m_fd = fdlock_get(fd);
+    fprintf(stdout, "Get fdlock %d\n", (int)fd);
     int ret = pthread_mutex_timedlock(m_fd, &timeout_time);
     if (ret == ETIMEDOUT) {
       // cant get fd lock
       // move fd to back of the queue and continue waiting for another task
+      printf("Cant acquire fdlock\n");
       steque_enqueue(&tasks, item);
       continue;
     } else {
@@ -105,7 +110,6 @@ gfh_error_t gfs_handler(gfcontext_t **ctx, const char *path, void* arg){
   // initialize results
   pthread_mutex_init(&m_tasks, NULL);
   pthread_cond_init(&c_boss, NULL);
-  // initialize worker pool
   worker_args_t worker_args;
   worker_args.ctx = ctx;
   pthread_t* thread_pool = (pthread_t*)malloc(args->nthreads * sizeof(pthread_t));
@@ -121,8 +125,12 @@ gfh_error_t gfs_handler(gfcontext_t **ctx, const char *path, void* arg){
     // TODO: send FILE_NOT_FOUND
   } else {
     // enqueue task
+    fprintf(stdout, "New task: %d\n", fd);
     steque_enqueue(&tasks, &fd);
     pthread_cond_signal(&c_boss);
+    for (int i=0; i<args->nthreads; i++) {
+      pthread_join(thread_pool[i], NULL);
+    }
   }
 
   return gfh_failure;
