@@ -1,6 +1,13 @@
 #define GFSERVER_PRIVATE
 #include <stdlib.h>
 #include "gfserver-student.h"
+#include <stdbool.h>
+
+
+
+#define BUFSIZE 1024
+#define min(a, b) (a>b)?b:a;
+
 
 #define USAGE                                                                                     \
   "usage:\n"                                                                                      \
@@ -31,6 +38,89 @@ static void _sig_handler(int signo) {
     exit(signo);
   }
 }
+
+void* worker(void* arg) {
+  // worker_args_t* args = (worker_args_t*)arg;
+  struct timespec timeout_time;
+  clock_gettime(CLOCK_REALTIME, &timeout_time); // Get current time
+  timeout_time.tv_sec += 30; // Add 3 seconds to the current time
+
+  fprintf(stdout, "Thread started\n");
+
+  while (1) {
+    pthread_mutex_lock(&m_tasks);
+    while (steque_isempty(&tasks)) {
+      pthread_cond_wait(&c_boss, &m_tasks);
+    }
+    // acquired locks to tasks
+    steque_item item = steque_pop(&tasks);
+    pthread_mutex_unlock(&m_tasks);
+    
+		task_item* task_i = (task_item*)item;
+    int fd = task_i->fd;
+		gfcontext_t** ctx = task_i->ctx;
+    fprintf(stdout, "Worker processing %d\n", (int)fd);
+    // try to acquire lock for fd for 3s;
+    // pthread_mutex_t* m_fd = fdlock_get(fd);
+    // fprintf(stdout, "Get fdlock %d\n", (int)fd);
+    // int ret = pthread_mutex_timedlock(m_fd, &timeout_time);
+    if (false) {
+      // cant get fd lock
+      // move fd to back of the queue and continue waiting for another task
+      printf("Cant acquire fdlock\n");
+      steque_enqueue(&tasks, item);
+      continue;
+    } else {
+      // acquired lock to fd
+      // reset fd to start of file
+    // SEEK_SET indicates that the offset is relative to the beginning of the file
+      // off_t new_offset = lseek(fd, 0, SEEK_SET);
+      off_t new_offset = 0;
+      if (new_offset == (off_t)-1) {
+        perror("Error seeking to beginning of file");
+        steque_enqueue(&tasks, item);
+        // pthread_mutex_unlock(m_fd);
+        continue;
+      }
+      // get file stats by calling fstats
+      struct stat file_stat;
+      if (fstat(fd, &file_stat) == -1) {
+          perror("Error getting file status");
+          // design decision: not to re-enqueue the request since the fd has problem
+          // pthread_mutex_unlock(m_fd);
+          continue;
+      }
+      long file_len = file_stat.st_size;
+      printf("File length: %ld bytes\n", file_len);
+      // call header to send file len
+      gfs_sendheader(ctx, GF_OK, file_len);
+      //send all file at once -> easy -> let TCP handle packet fragmentation
+      char buf[BUFSIZE];
+      ssize_t bytes_sent=0;
+      ssize_t total_sent=0;
+      while (total_sent < file_len) {
+        ssize_t buf_size = min(BUFSIZE, file_len-total_sent);
+        if (0 > pread(fd, buf, buf_size, new_offset)) {
+          perror("error reading file");
+          // design decision: not to re-enqueue the request since the fd has problem
+          break;
+        } else {
+          if ((bytes_sent = gfs_send(ctx, buf, buf_size)) < 0) {
+            fprintf(stderr, "error sending file to client. Abort request\n");
+            break;
+          }
+          printf("Sent %ld bytes to client\n", bytes_sent);
+					new_offset += buf_size;
+          total_sent += bytes_sent;
+        }
+      }
+      printf("Download done. Sent %ld bytes to client\n", total_sent);
+      // release fd lock after download complete
+      // pthread_mutex_unlock(m_fd);
+    }
+  }
+}
+
 
 /* Main ========================================================= */
 int main(int argc, char **argv) {
@@ -106,7 +196,24 @@ int main(int argc, char **argv) {
   handler_args.nthreads = nthreads;
 
   gfserver_set_handlerarg(&gfs, &handler_args);  // doesn't have to be NULL!
+	// init thread pool
+	// handler_args_t* args = (handler_args_t*) arg;
 
+  // initialize results
+  pthread_mutex_init(&m_tasks, NULL);
+  pthread_cond_init(&c_boss, NULL);
+  worker_args_t worker_args;
+  pthread_t* thread_pool = (pthread_t*)malloc(nthreads * sizeof(pthread_t));
+  fprintf(stdout, "Starting %d threads\n", nthreads);
+  for (int i=0; i<nthreads; i++) {
+    pthread_create(&thread_pool[i], NULL, worker, &worker_args); // no need worker_args anymore, TODO: clean up
+  }
+	
   /*Loops forever*/
   gfserver_serve(&gfs);
+	
+	// clean up thread pool
+	for (int i=0; i<nthreads; i++) {
+    pthread_join(thread_pool[i], NULL);
+  }
 }

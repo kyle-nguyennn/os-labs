@@ -7,8 +7,23 @@
 #include "gf-student.h"
 #include "gfserver.h"
 #include "content.h"
+#include "steque.h"
 
 typedef struct handler_args handler_args_t;
+
+typedef struct worker_args_t{
+  gfcontext_t **ctx;
+} worker_args_t;
+
+typedef struct {
+	int fd;
+	gfcontext_t** ctx;
+} task_item;
+
+
+steque_t tasks;
+pthread_mutex_t m_tasks; // protect the tasks
+pthread_cond_t c_boss;
 
 void init_threads(size_t numthreads);
 void cleanup_threads();
