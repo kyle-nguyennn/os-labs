@@ -69,6 +69,6 @@ gfh_error_t gfs_handler(gfcontext_t **ctx, const char *path, void* arg){
     //}
   }
 
-  return gfh_failure;
+  return gfh_success;
 }
 

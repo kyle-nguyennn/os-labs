@@ -28,6 +28,11 @@ static struct option gLongOptions[] = {
     {"delay", required_argument, NULL, 'd'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}};
+		
+steque_t tasks;
+pthread_mutex_t m_tasks; // protect the tasks
+pthread_cond_t c_boss;
+
 
 extern unsigned long int content_delay;
 
@@ -58,7 +63,7 @@ void* worker(void* arg) {
     
 		task_item* task_i = (task_item*)item;
     int fd = task_i->fd;
-		gfcontext_t** ctx = task_i->ctx;
+		// gfcontext_t* ctx = task_i->ctx;
     fprintf(stdout, "Worker processing %d\n", (int)fd);
     // try to acquire lock for fd for 3s;
     // pthread_mutex_t* m_fd = fdlock_get(fd);
@@ -93,7 +98,7 @@ void* worker(void* arg) {
       long file_len = file_stat.st_size;
       printf("File length: %ld bytes\n", file_len);
       // call header to send file len
-      gfs_sendheader(ctx, GF_OK, file_len);
+      gfs_sendheader(task_i->ctx, GF_OK, file_len);
       //send all file at once -> easy -> let TCP handle packet fragmentation
       char buf[BUFSIZE];
       ssize_t bytes_sent=0;
@@ -105,7 +110,7 @@ void* worker(void* arg) {
           // design decision: not to re-enqueue the request since the fd has problem
           break;
         } else {
-          if ((bytes_sent = gfs_send(ctx, buf, buf_size)) < 0) {
+          if ((bytes_sent = gfs_send(task_i->ctx, buf, buf_size)) < 0) {
             fprintf(stderr, "error sending file to client. Abort request\n");
             break;
           }

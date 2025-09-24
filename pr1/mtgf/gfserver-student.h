@@ -21,9 +21,9 @@ typedef struct {
 } task_item;
 
 
-steque_t tasks;
-pthread_mutex_t m_tasks; // protect the tasks
-pthread_cond_t c_boss;
+extern steque_t tasks;
+extern pthread_mutex_t m_tasks; // protect the tasks
+extern pthread_cond_t c_boss;
 
 void init_threads(size_t numthreads);
 void cleanup_threads();
