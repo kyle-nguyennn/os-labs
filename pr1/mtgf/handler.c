@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include "steque.h"
 #include <stdlib.h>
+#include <stdbool.h>
 
 //
 //  The purpose of this function is to handle a get request
@@ -21,6 +22,9 @@
 //  Note: you don't need to use arg. The test code uses it in some cases, but
 //        not in others.
 //
+
+#define BUFSIZE 1024
+#define min(a, b) (a>b)?b:a;
 
 typedef struct worker_args_t{
   gfcontext_t **ctx;
@@ -84,17 +88,25 @@ void* worker(void* arg) {
       // call header to send file len
       gfs_sendheader(args->ctx, GF_OK, file_len);
       //send all file at once -> easy -> let TCP handle packet fragmentation
-      char* buf = (char*) malloc(file_len);
-      if (0 > read(fd, buf, (size_t)file_len)) {
-        perror("error reading file");
-        // design decision: not to re-enqueue the request since the fd has problem
-        pthread_mutex_unlock(m_fd);
-        continue;
+      char buf[BUFSIZE];
+      ssize_t bytes_sent=0;
+      ssize_t total_sent=0;
+      while (total_sent < file_len) {
+        ssize_t buf_size = min(BUFSIZE, file_len-total_sent);
+        if (0 > read(fd, buf, buf_size)) {
+          perror("error reading file");
+          // design decision: not to re-enqueue the request since the fd has problem
+          break;
+        } else {
+          if ((bytes_sent = gfs_send(args->ctx, buf, buf_size)) < 0) {
+            fprintf(stderr, "error sending file to client. Abort request\n");
+            break;
+          }
+          printf("Sent %ld bytes to client\n", bytes_sent);
+          total_sent += bytes_sent;
+        }
       }
-      // Read file succesfully to buffer, send everything to client
-      if (0 > gfs_send(args->ctx, buf, file_len)) {
-        fprintf(stderr, "error sending file to client. Abort request\n");
-      }
+      printf("Download done. Sent %ld bytes to client\n", total_sent);
       // release fd lock after download complete
       pthread_mutex_unlock(m_fd);
     }
