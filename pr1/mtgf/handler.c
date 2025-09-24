@@ -24,50 +24,23 @@
 //
 
 
-//typedef struct worker_args_t{
-//  gfcontext_t **ctx;
-//} worker_args_t;
-
-
-//steque_t tasks;
-//pthread_mutex_t m_tasks; // protect the tasks
-//pthread_cond_t c_boss;
-
-
 gfh_error_t gfs_handler(gfcontext_t **ctx, const char *path, void* arg){
-  // student implemented.
-  // arg must include: nthreads, content_map, 
-  // handler_args_t* args = (handler_args_t*) arg;
-  // int fd;
-  // initialize results
-  //pthread_mutex_init(&m_tasks, NULL);
-  //pthread_cond_init(&c_boss, NULL);
-  //worker_args_t worker_args;
-  //worker_args.ctx = ctx;
-  //pthread_t* thread_pool = (pthread_t*)malloc(args->nthreads * sizeof(pthread_t));
-  //fprintf(stdout, "Starting %d threads\n", args->nthreads);
-  //for (int i=0; i<args->nthreads; i++) {
-  //  pthread_create(&thread_pool[i], NULL, worker, &worker_args);
-  //}
-
   // check if path in content map
   // if exists, enqueue the fd to thread pool
-	int fd;
+  int fd;
   if ((fd = content_get(path)) == -1) {
     fprintf(stderr, "File %s not exist\n", path);
     // TODO: send FILE_NOT_FOUND
   } else {
     // enqueue task
     fprintf(stdout, "New task: %d\n", fd);
-		task_item* item = malloc(sizeof(*item));
-		item->fd = fd;
-		item->ctx = *ctx;
+    task_item* item = malloc(sizeof(*item));
+	item->fd = fd;
+	item->ctx = *ctx;
     steque_enqueue(&tasks, item);
     pthread_cond_signal(&c_boss);
-    //for (int i=0; i<args->nthreads; i++) {
-    //  pthread_join(thread_pool[i], NULL);
-    //}
   }
+  *ctx = NULL;
 
   return gfh_success;
 }

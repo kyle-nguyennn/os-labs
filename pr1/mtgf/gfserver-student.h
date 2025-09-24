@@ -11,10 +11,6 @@
 
 typedef struct handler_args handler_args_t;
 
-typedef struct worker_args_t{
-  gfcontext_t **ctx;
-} worker_args_t;
-
 typedef struct {
 	int fd;
 	gfcontext_t* ctx;
