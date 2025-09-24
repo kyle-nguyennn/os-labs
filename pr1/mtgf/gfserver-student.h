@@ -17,7 +17,7 @@ typedef struct worker_args_t{
 
 typedef struct {
 	int fd;
-	gfcontext_t** ctx;
+	gfcontext_t* ctx;
 } task_item;
 
 

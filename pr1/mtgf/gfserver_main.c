@@ -98,7 +98,7 @@ void* worker(void* arg) {
       long file_len = file_stat.st_size;
       printf("File length: %ld bytes\n", file_len);
       // call header to send file len
-      gfs_sendheader(task_i->ctx, GF_OK, file_len);
+      gfs_sendheader(&(task_i->ctx), GF_OK, file_len);
       //send all file at once -> easy -> let TCP handle packet fragmentation
       char buf[BUFSIZE];
       ssize_t bytes_sent=0;
@@ -110,7 +110,7 @@ void* worker(void* arg) {
           // design decision: not to re-enqueue the request since the fd has problem
           break;
         } else {
-          if ((bytes_sent = gfs_send(task_i->ctx, buf, buf_size)) < 0) {
+          if ((bytes_sent = gfs_send(&(task_i->ctx), buf, buf_size)) < 0) {
             fprintf(stderr, "error sending file to client. Abort request\n");
             break;
           }
@@ -120,7 +120,8 @@ void* worker(void* arg) {
         }
       }
       printf("Download done. Sent %ld bytes to client\n", total_sent);
-      // release fd lock after download complete
+   		free(task_i);   
+			// release fd lock after download complete
       // pthread_mutex_unlock(m_fd);
     }
   }

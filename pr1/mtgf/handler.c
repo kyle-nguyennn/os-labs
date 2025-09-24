@@ -59,10 +59,10 @@ gfh_error_t gfs_handler(gfcontext_t **ctx, const char *path, void* arg){
   } else {
     // enqueue task
     fprintf(stdout, "New task: %d\n", fd);
-		task_item item;
-		item.fd = fd;
-		item.ctx = ctx;
-    steque_enqueue(&tasks, &item);
+		task_item* item = malloc(sizeof(*item));
+		item->fd = fd;
+		item->ctx = *ctx;
+    steque_enqueue(&tasks, item);
     pthread_cond_signal(&c_boss);
     //for (int i=0; i<args->nthreads; i++) {
     //  pthread_join(thread_pool[i], NULL);
