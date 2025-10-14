@@ -36,29 +36,30 @@ ssize_t handle_with_curl(gfcontext_t *ctx, const char *path, void* arg){
     curl_easy_setopt(handle, CURLOPT_URL, full_path);
     curl_easy_setopt(handle, CURLOPT_NOBODY, 1L);
     statusCode = curl_easy_perform(handle);
+    curl_off_t content_length = -1;
 
     if (statusCode != CURLE_OK) {
         // Handle error
         fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(statusCode));
         curl_easy_cleanup(handle);
-        return -1;
-    }
-
-    curl_off_t content_length;
-    statusCode = curl_easy_getinfo(handle, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &content_length);
-    if (statusCode == CURLE_OK) {
-        if (content_length != -1) {
-            printf("File size: %lld bytes\n", (long long)content_length);
-        } else {
-            printf("Content-Length not available.\n");
-            curl_easy_cleanup(handle);
-            return -1;
-        }
     } else {
-        // Handle error getting info
-        fprintf(stderr, "curl_easy_getinfo() failed: %s\n", curl_easy_strerror(statusCode));
-        curl_easy_cleanup(handle);
-        return -1;
+        statusCode = curl_easy_getinfo(handle, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &content_length);
+        if (statusCode == CURLE_OK) {
+            if (content_length != -1) {
+                printf("File size: %lld bytes\n", (long long)content_length);
+            } else {
+                printf("Content-Length not available.\n");
+                curl_easy_cleanup(handle);
+            }
+        } else {
+            // Handle error getting info
+            fprintf(stderr, "curl_easy_getinfo() failed: %s\n", curl_easy_strerror(statusCode));
+            curl_easy_cleanup(handle);
+        }
+    }
+    if (content_length == -1) {
+        gfs_sendheader(ctx, GF_FILE_NOT_FOUND, -1);
+        return 0;
     }
     
     gfs_sendheader(ctx, GF_OK, (size_t) content_length);
