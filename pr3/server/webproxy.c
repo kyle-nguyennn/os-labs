@@ -95,6 +95,9 @@ int main(int argc, char **argv) {
     exit(__LINE__);
   }
 
+  // Init global curl
+  curl_global_init(CURL_GLOBAL_ALL);
+
   // Initialize server structure here
   gfserver_init(&gfs, nworkerthreads);
 // Set server options here
@@ -103,7 +106,7 @@ int main(int argc, char **argv) {
   gfserver_setopt(&gfs, GFS_PORT, port);
   // Set up arguments for worker here
   for(i = 0; i < nworkerthreads; i++) {
-    gfserver_setopt(&gfs, GFS_WORKER_ARG, i, "arg");
+    gfserver_setopt(&gfs, GFS_WORKER_ARG, i, server);
   }
   // Invoke the framework - this is an infinite loop and shouldn't return
   gfserver_serve(&gfs);
