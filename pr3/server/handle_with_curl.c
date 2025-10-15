@@ -1,5 +1,6 @@
 #include "proxy-student.h"
 #include "gfserver.h"
+#include <curl/curl.h>
 #include <stddef.h>
 
 
@@ -36,6 +37,7 @@ ssize_t handle_with_curl(gfcontext_t *ctx, const char *path, void* arg){
     curl_easy_setopt(handle, CURLOPT_URL, full_path);
     curl_easy_setopt(handle, CURLOPT_NOBODY, 1L);
     statusCode = curl_easy_perform(handle);
+    long http_code = 0;
     curl_off_t content_length = -1;
 
     if (statusCode != CURLE_OK) {
@@ -43,13 +45,22 @@ ssize_t handle_with_curl(gfcontext_t *ctx, const char *path, void* arg){
         fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(statusCode));
         curl_easy_cleanup(handle);
     } else {
-        statusCode = curl_easy_getinfo(handle, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &content_length);
+        statusCode = curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &http_code);
+        printf("http code = %ld\n", http_code);
         if (statusCode == CURLE_OK) {
-            if (content_length != -1) {
-                printf("File size: %lld bytes\n", (long long)content_length);
-            } else {
-                printf("Content-Length not available.\n");
+            if (http_code == 404 || http_code == 400) {
+                printf("FILE NOT FOUND.\n");
+                gfs_sendheader(ctx, GF_FILE_NOT_FOUND, -1);
                 curl_easy_cleanup(handle);
+                return -1;
+            } else {
+                statusCode = curl_easy_getinfo(handle, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &content_length);
+                if (statusCode != CURLE_OK) {
+                    fprintf(stderr, "curl_easy_getinfo() failed: %s\n", curl_easy_strerror(statusCode));
+                    curl_easy_cleanup(handle);
+                }
+                printf("File size: %lld bytes\n", (long long)content_length);
+                gfs_sendheader(ctx, GF_OK, (size_t) content_length);
             }
         } else {
             // Handle error getting info
@@ -57,12 +68,7 @@ ssize_t handle_with_curl(gfcontext_t *ctx, const char *path, void* arg){
             curl_easy_cleanup(handle);
         }
     }
-    if (content_length == -1) {
-        gfs_sendheader(ctx, GF_FILE_NOT_FOUND, -1);
-        return 0;
-    }
     
-    gfs_sendheader(ctx, GF_OK, (size_t) content_length);
     handle = curl_easy_init();
     curl_easy_setopt(handle, CURLOPT_URL, full_path);
     curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, forward_callback);
