@@ -149,8 +149,11 @@ int main(int argc, char **argv) {
   gfserver_setopt(&gfs, GFS_MAXNPENDING, 187);
 
   // Set up arguments for worker here
+  int* thread_ids = malloc(nworkerthreads*sizeof(int));
   for(int i = 0; i < nworkerthreads; i++) {
-    gfserver_setopt(&gfs, GFS_WORKER_ARG, i, "data");
+    // pass thread_id as arg to create control channel for each thread
+    thread_ids[i] = i;
+    gfserver_setopt(&gfs, GFS_WORKER_ARG, i, thread_ids+i);
   }
   
   // Invokethe framework - this is an infinite loop and will not return

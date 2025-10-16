@@ -14,6 +14,7 @@
 #include "shm_channel.h"
 #include "simplecache.h"
 #include "gfserver.h"
+#include <mqueue.h>
 
 // CACHE_FAILURE
 #if !defined(CACHE_FAILURE)
@@ -22,6 +23,7 @@
 
 #define MAX_CACHE_REQUEST_LEN 6112
 #define MAX_SIMPLE_CACHE_QUEUE_SIZE 783
+#define CACHE_COMMAND_QUEUE_NAME "/cache_command_queue"
 
 unsigned long int cache_delay;
 
@@ -53,6 +55,74 @@ static struct option gLongOptions[] = {
 
 void Usage() {
   fprintf(stdout, "%s", USAGE);
+}
+
+int handle_file(int fd) {
+    // TODO: refactor this later
+    int bytes_transferred  = 0;
+	// strncpy(buffer,data_dir, BUFSIZE);
+	// strncat(buffer,path, BUFSIZE);
+
+	// if( 0 > (fildes = open(buffer, O_RDONLY))){
+	// 	if (errno == ENOENT)
+	// 		//If the file just wasn't found, then send FILE_NOT_FOUND code
+	// 		return gfs_sendheader(ctx, GF_FILE_NOT_FOUND, 0);
+	// 	else
+	// 		//Otherwise, it must have been a server error. gfserver library will handle
+	// 		return SERVER_FAILURE;
+	// }
+
+	// //Calculating the file size
+	// if (fstat(fildes, &statbuf) < 0) {
+	// 	return SERVER_FAILURE;
+	// }
+	// file_len = (size_t) statbuf.st_size;
+	// ///
+
+	// gfs_sendheader(ctx, GF_OK, file_len);
+
+	// //Sending the file contents chunk by chunk
+
+	// bytes_transferred = 0;
+	// while(bytes_transferred < file_len){
+	// 	read_len = read(fildes, buffer, BUFSIZE);
+	// 	if (read_len <= 0){
+	// 		fprintf(stderr, "handle_with_file read error, %zd, %zu, %zu", read_len, bytes_transferred, file_len );
+	// 		return SERVER_FAILURE;
+	// 	}
+	// 	write_len = gfs_send(ctx, buffer, read_len);
+	// 	if (write_len != read_len){
+	// 		fprintf(stderr, "handle_with_file write error");
+	// 		return SERVER_FAILURE;
+	// 	}
+	// 	bytes_transferred += write_len;
+	// }
+    return bytes_transferred;
+}
+
+void handle_cache_get(mqd_t mqd) {
+    // Get new message queue
+    char cache_command[MAX_CACHE_REQUEST_LEN+1];
+    char cache_reply[MAX_CACHE_REQUEST_LEN+1];
+    ssize_t bytes_received = mq_receive(mqd, cache_command, MAX_CACHE_REQUEST_LEN, NULL);
+    if (bytes_received < 0) {
+        perror("mq_receive");
+        // exit this request
+        return; // TODO: continue in worker loop
+    }
+    // Null terminated string
+    cache_command[bytes_received] = '\0';
+    int fd = simplecache_get(cache_command);
+    if (fd == -1) {
+        fprintf(stderr, "File not found\n"); 
+        // send reply back to client
+        sprintf(cache_reply, "FILE_NOT_FOUND");
+        mq_send(mqd, cache_reply, strlen(cache_reply), 0);
+    } else {
+        // TODO: open a memory segment to send data back
+        sprintf(cache_reply, "TODO: reply with shared mem name (semaphore name is induced from shared mem name");
+        mq_send(mqd, cache_reply, strlen(cache_reply), 0);
+    }
 }
 
 int main(int argc, char **argv) {
@@ -109,6 +179,17 @@ int main(int argc, char **argv) {
 	simplecache_init(cachedir);
 
 	// Cache should go here
+    // Main thread open up command message queue
+    struct mq_attr attr;
+    attr.mq_maxmsg = MAX_SIMPLE_CACHE_QUEUE_SIZE;
+    attr.mq_msgsize = MAX_CACHE_REQUEST_LEN;
+    mqd_t mqd = mq_open(CACHE_COMMAND_QUEUE_NAME, O_CREAT | O_RDWR, 0666, &attr);
+    if (mqd == (mqd_t)-1) {
+        perror("mq_open");
+        exit(EXIT_FAILURE);
+    }
+    // pass mqd to worker thread
+    handle_cache_get(mqd);
 
 	// Line never reached
 	return -1;
