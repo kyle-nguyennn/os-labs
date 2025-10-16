@@ -21,11 +21,8 @@
     #define CACHE_FAILURE (-1)
 #endif 
 
-#define MAX_CACHE_REQUEST_LEN 6112
-#define MAX_SIMPLE_CACHE_QUEUE_SIZE 783
-#define CACHE_COMMAND_QUEUE_NAME "/cache_command_queue"
-
 unsigned long int cache_delay;
+mqd_t cache_mq;
 
 static void _sig_handler(int signo){
 	if (signo == SIGTERM || signo == SIGINT){
@@ -100,28 +97,30 @@ int handle_file(int fd) {
     return bytes_transferred;
 }
 
-void handle_cache_get(mqd_t mqd) {
+void handle_cache_get() {
     // Get new message queue
-    char cache_command[MAX_CACHE_REQUEST_LEN+1];
-    char cache_reply[MAX_CACHE_REQUEST_LEN+1];
-    ssize_t bytes_received = mq_receive(mqd, cache_command, MAX_CACHE_REQUEST_LEN, NULL);
-    if (bytes_received < 0) {
-        perror("mq_receive");
-        // exit this request
-        return; // TODO: continue in worker loop
-    }
-    // Null terminated string
-    cache_command[bytes_received] = '\0';
-    int fd = simplecache_get(cache_command);
-    if (fd == -1) {
-        fprintf(stderr, "File not found\n"); 
-        // send reply back to client
-        sprintf(cache_reply, "FILE_NOT_FOUND");
-        mq_send(mqd, cache_reply, strlen(cache_reply), 0);
-    } else {
-        // TODO: open a memory segment to send data back
-        sprintf(cache_reply, "TODO: reply with shared mem name (semaphore name is induced from shared mem name");
-        mq_send(mqd, cache_reply, strlen(cache_reply), 0);
+    while (1) {
+        char cache_command[MAX_CACHE_REQUEST_LEN+1];
+        char cache_reply[MAX_CACHE_REQUEST_LEN+1];
+        ssize_t bytes_received = mq_receive(cache_mq, cache_command, MAX_CACHE_REQUEST_LEN+1, NULL);
+        if (bytes_received < 0) {
+            perror("mq_receive");
+            // exit this request
+            return; // TODO: continue in worker loop
+        }
+        // Null terminated string
+        cache_command[bytes_received] = '\0';
+        int fd = simplecache_get(cache_command);
+        if (fd == -1) {
+            fprintf(stderr, "File not found\n"); 
+            // send reply back to client
+            sprintf(cache_reply, "FILE_NOT_FOUND");
+            mq_send(cache_mq, cache_reply, strlen(cache_reply), 0);
+        } else {
+            // TODO: open a memory segment to send data back
+            sprintf(cache_reply, "TODO: reply with shared mem name (semaphore name is induced from shared mem name");
+            mq_send(cache_mq, cache_reply, strlen(cache_reply), 0);
+        }
     }
 }
 
@@ -181,15 +180,24 @@ int main(int argc, char **argv) {
 	// Cache should go here
     // Main thread open up command message queue
     struct mq_attr attr;
-    attr.mq_maxmsg = MAX_SIMPLE_CACHE_QUEUE_SIZE;
+    // attr.mq_maxmsg = MAX_SIMPLE_CACHE_QUEUE_SIZE;
+    attr.mq_flags = 0;
+    attr.mq_maxmsg = 10;     // Max messages in queue
     attr.mq_msgsize = MAX_CACHE_REQUEST_LEN;
-    mqd_t mqd = mq_open(CACHE_COMMAND_QUEUE_NAME, O_CREAT | O_RDWR, 0666, &attr);
-    if (mqd == (mqd_t)-1) {
+    attr.mq_curmsgs = 0;     // Current messages (ignored for mq_open)
+    cache_mq = mq_open(CACHE_COMMAND_QUEUE_NAME, O_CREAT | O_RDWR, 0644, &attr);
+    if (cache_mq == (mqd_t)-1) {
         perror("mq_open");
         exit(EXIT_FAILURE);
     }
-    // pass mqd to worker thread
-    handle_cache_get(mqd);
+    // handle mq message in thread, following boss-worker pattern
+    printf("Created message queue %d\n", cache_mq);
+    handle_cache_get();
+
+    // TODO: proper SIGTERM and SIGINT handler to unlink queue
+    if(mq_unlink(CACHE_COMMAND_QUEUE_NAME) == 0) {
+        printf("Message queue %s removed from system.\n", CACHE_COMMAND_QUEUE_NAME);
+    }
 
 	// Line never reached
 	return -1;
