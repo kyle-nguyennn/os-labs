@@ -76,7 +76,6 @@ ssize_t handle_with_cache(gfcontext_t *ctx, const char *path, void* arg){
             //     perror("sem_wait failed");
             // }
             sem_wait(sem_p); // wait for full
-            // sem_wait(sem_c); // acquire lock to consume
             // send from shm_ptr
             ssize_t buf_size = min(SHM_SEGMENT_SIZE, cache_reply.file_len-total_transferred);
             printf("Sending %ld bytes from shm\n", buf_size);
@@ -93,7 +92,6 @@ ssize_t handle_with_cache(gfcontext_t *ctx, const char *path, void* arg){
             // }
             printf("Sent progress: %ld/%ld\n", total_transferred, cache_reply.file_len);
             sem_post(sem_c); // signal empty
-            // sem_post(sem_p); // release p lock
         }
 
     }

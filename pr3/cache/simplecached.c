@@ -103,7 +103,7 @@ int handle_file(int fd) {
     return bytes_transferred;
 }
 
-void handle_cache_get() {
+void* handle_cache_get() {
     // Get new message queue
     while (1) {
         cache_command_t cache_command;
@@ -111,7 +111,7 @@ void handle_cache_get() {
         if (0> mq_receive(cache_mq, (char*)&cache_command, MAX_CACHE_REQUEST_LEN+1, NULL)) {
             perror("mq_receive");
             // exit this request
-            return; // TODO: continue in worker loop
+            continue; // TODO: continue in worker loop
         }
         printf("Receive from thread %d, path: %s\n", cache_command.thread_id, cache_command.path);
         int fd = simplecache_get(cache_command.path);
@@ -161,7 +161,6 @@ void handle_cache_get() {
                 //     perror("sem_wait failed");
                 // }
                 sem_wait(sem_c); // wait for empty
-                // sem_wait(sem_p); // acquire lock to produce
                 ssize_t buf_size = min(SHM_SEGMENT_SIZE, cache_reply.file_len-total_sent);
                 if (0 > pread(fd, shm_ptr, buf_size, total_sent)) {
                     perror("error reading file");
@@ -173,7 +172,6 @@ void handle_cache_get() {
                     //     perror("sem_post failed");
                     // }
                     sem_post(sem_p); // signal full
-                    // sem_post(sem_c); // release c lock
                 }    
                 if (!in_progress) {
                     // Use mq_receive on cache thread as blocker for first send
@@ -182,12 +180,12 @@ void handle_cache_get() {
                 }
                 printf("Sent progress: %ld/%ld\n", total_sent, cache_reply.file_len);
                 // DEBUG
-                int sem_p_value;
-                int sem_c_value;
-                sem_getvalue(sem_p, &sem_p_value);
-                sem_getvalue(sem_c, &sem_c_value);
-                printf("Semp Producer value: %d\n", sem_p_value);
-                printf("Semp Consumer value: %d\n", sem_c_value);
+                // int sem_p_value;
+                // int sem_c_value;
+                // sem_getvalue(sem_p, &sem_p_value);
+                // sem_getvalue(sem_c, &sem_c_value);
+                // printf("Semp Producer value: %d\n", sem_p_value);
+                // printf("Semp Consumer value: %d\n", sem_c_value);
 
             }
             printf("Sent %ld bytes to proxy server\n", total_sent);
@@ -262,9 +260,18 @@ int main(int argc, char **argv) {
         perror("mq_open");
         exit(EXIT_FAILURE);
     }
-    // handle mq message in thread, following boss-worker pattern
     printf("Created message queue %d\n", cache_mq);
-    handle_cache_get();
+    // handle mq message in thread, following boss-worker pattern
+    pthread_t* thread_pool = (pthread_t*)malloc(nthreads * sizeof(pthread_t));
+    fprintf(stdout, "Starting %d threads for cache process\n", nthreads);
+    for (int i=0; i<nthreads; i++) {
+      pthread_create(&thread_pool[i], NULL, handle_cache_get, NULL); // no need worker_args anymore, TODO: clean up
+    }
+      
+    // clean up thread pool
+    for (int i=0; i<nthreads; i++) {
+      pthread_join(thread_pool[i], NULL);
+    }
 
 	// Line never reached
 	return -1;
