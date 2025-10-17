@@ -63,10 +63,17 @@ void cleanup_mq() {
 
 void cleanup_sem() {
   for (int thread_id=0; thread_id < nworkerthreads; thread_id++) {
-    char sem_name[50];
-    sprintf(sem_name, "%s_%d", SEM_PREFIX, thread_id);
-    if(sem_unlink(sem_name) == 0) {
-        printf("Semaphore %s removed from system.\n", sem_name);
+    char sem_p_name[50];
+    char sem_c_name[50];
+    sprintf(sem_p_name, "%s_%d", SEM_P_PREFIX, thread_id);
+    sprintf(sem_c_name, "%s_%d", SEM_C_PREFIX, thread_id);
+    if(sem_unlink(sem_p_name) == 0) {
+        printf("Semaphore %s removed from system.\n", sem_p_name);
+    } else {
+        perror("sem_unlink failed");
+    }
+    if(sem_unlink(sem_c_name) == 0) {
+        printf("Semaphore %s removed from system.\n", sem_c_name);
     } else {
         perror("sem_unlink failed");
     }
@@ -189,17 +196,22 @@ int main(int argc, char **argv) {
   attr.mq_curmsgs = 0;     // Current messages (ignored for mq_open)
   for (int thread_id=0; thread_id < nworkerthreads; thread_id++) {
     char cache_reply_queue_name[50];
-    char sem_name[50];
+    char sem_p_name[50];
+    char sem_c_name[50];
     char shm_name[50];
     sprintf(cache_reply_queue_name, "%s_%d", CACHE_REPLY_QUEUE_PREFIX, thread_id);
-    sprintf(sem_name, "%s_%d", SEM_PREFIX, thread_id);
+    sprintf(sem_p_name, "%s_%d", SEM_P_PREFIX, thread_id);
+    sprintf(sem_c_name, "%s_%d", SEM_C_PREFIX, thread_id);
     sprintf(shm_name, "%s_%d", SHM_SEGMENT_PREFIX, thread_id);
     // Init MQ
     if (0> mq_open(cache_reply_queue_name, O_CREAT, 0666, &attr)) {
       perror("webproxy init cache_reply_mq: mq_open");
     }
     // Init semaphore
-    if (SEM_FAILED == sem_open(sem_name, O_CREAT, 0666, 0)){ // Initial value 0
+    if (SEM_FAILED == sem_open(sem_p_name, O_CREAT, 0666, 0)){ // Initial value 0
+      perror("webproxy init sem: sem_open");
+    }
+    if (SEM_FAILED == sem_open(sem_c_name, O_CREAT, 0666, 1)){ // Initial value 1
       perror("webproxy init sem: sem_open");
     }
     // Init Shared memory

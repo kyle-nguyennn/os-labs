@@ -1,3 +1,4 @@
+#include <semaphore.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <printf.h>
@@ -15,6 +16,8 @@
 #include "simplecache.h"
 #include "gfserver.h"
 #include <mqueue.h>
+#include <sys/stat.h>
+#include <stdbool.h>
 
 // CACHE_FAILURE
 #if !defined(CACHE_FAILURE)
@@ -105,13 +108,11 @@ void handle_cache_get() {
     while (1) {
         cache_command_t cache_command;
         cache_reply_t cache_reply;
-        ssize_t bytes_received = mq_receive(cache_mq, (char*)&cache_command, MAX_CACHE_REQUEST_LEN+1, NULL);
-        if (bytes_received < 0) {
+        if (0> mq_receive(cache_mq, (char*)&cache_command, MAX_CACHE_REQUEST_LEN+1, NULL)) {
             perror("mq_receive");
             // exit this request
             return; // TODO: continue in worker loop
         }
-        // Null terminated string
         printf("Receive from thread %d, path: %s\n", cache_command.thread_id, cache_command.path);
         int fd = simplecache_get(cache_command.path);
         // reply on thread-specific channel
@@ -130,23 +131,66 @@ void handle_cache_get() {
             mq_send(reply_mq, (const char*)&cache_reply, sizeof(cache_reply), 0);
         } else {
             // TODO: open a memory segment to send data back
+            struct stat file_info;
+            if (fstat(fd, &file_info) == -1) {
+                perror("fstat");
+            }
             cache_reply.status = CACHE_OK;
-            cache_reply.file_len = -1; // TODO: fstat(fd) to get file len
-            mq_send(reply_mq, (const char*)&cache_reply, sizeof(cache_reply), 0);
+            cache_reply.file_len = file_info.st_size; // TODO: fstat(fd) to get file len
             // Open corresponding semaphore for flow control
-            char sem_name[50];
-            sprintf(sem_name, "%s_%d", SEM_PREFIX, cache_command.thread_id);
-            sem_t *sem = sem_open(sem_name, 0); // Open existing semaphore
-            if (sem == SEM_FAILED) {
+            char sem_p_name[50];
+            char sem_c_name[50];
+            sprintf(sem_p_name, "%s_%d", SEM_P_PREFIX, cache_command.thread_id);
+            sprintf(sem_c_name, "%s_%d", SEM_C_PREFIX, cache_command.thread_id);
+            sem_t *sem_p = sem_open(sem_p_name, 0); // Open existing semaphore
+            if (sem_p == SEM_FAILED) {
                 perror("sem_open failed");
             }
-            // TODO: Open corresponding shared memory for data transfer
-
-            // TODO: stream fd content to shm by the shm size and signal cache thread
-            // sem_post signal cache thread to process the shm
-            if (sem_post(sem) == -1) {
-                perror("sem_wait failed");
+            sem_t *sem_c = sem_open(sem_c_name, 0); // Open existing semaphore
+            if (sem_c == SEM_FAILED) {
+                perror("sem_open failed");
             }
+            ssize_t total_sent = 0;
+            bool in_progress = false;
+
+            // Open corresponding shared memory for data transfer
+            void* shm_ptr = get_shm_map_for_thread(cache_command.thread_id);
+            // stream fd content to shm by the shm size and signal cache thread
+            while (total_sent < file_info.st_size) {
+                // if (sem_wait(sem_c) == -1) { // wait for proxy to process data in shm
+                //     perror("sem_wait failed");
+                // }
+                sem_wait(sem_c); // wait for empty
+                // sem_wait(sem_p); // acquire lock to produce
+                ssize_t buf_size = min(SHM_SEGMENT_SIZE, cache_reply.file_len-total_sent);
+                if (0 > pread(fd, shm_ptr, buf_size, total_sent)) {
+                    perror("error reading file");
+                    break;
+                } else {
+                    total_sent += buf_size;
+                    // sem_post signal cache thread to process the shm
+                    // if (sem_post(sem_p) == -1) {
+                    //     perror("sem_post failed");
+                    // }
+                    sem_post(sem_p); // signal full
+                    // sem_post(sem_c); // release c lock
+                }    
+                if (!in_progress) {
+                    // Use mq_receive on cache thread as blocker for first send
+                    mq_send(reply_mq, (const char*)&cache_reply, sizeof(cache_reply), 0);
+                    in_progress = true;
+                }
+                printf("Sent progress: %ld/%ld\n", total_sent, cache_reply.file_len);
+                // DEBUG
+                int sem_p_value;
+                int sem_c_value;
+                sem_getvalue(sem_p, &sem_p_value);
+                sem_getvalue(sem_c, &sem_c_value);
+                printf("Semp Producer value: %d\n", sem_p_value);
+                printf("Semp Consumer value: %d\n", sem_c_value);
+
+            }
+            printf("Sent %ld bytes to proxy server\n", total_sent);
 
         }
     }

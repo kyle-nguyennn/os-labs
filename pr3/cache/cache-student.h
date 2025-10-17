@@ -5,11 +5,14 @@
 
 #define __CACHE_STUDENT_H__844
 
+#define min(a, b) (a>b)?b:a;
+
 #include <stdatomic.h>
 #include <linux/limits.h>
 #define CACHE_COMMAND_QUEUE_NAME "/cache_command_queue"
 #define CACHE_REPLY_QUEUE_PREFIX "/cache_reply_queue"
-#define SEM_PREFIX "/cache_sem"
+#define SEM_P_PREFIX "/cache_sem_p"
+#define SEM_C_PREFIX "/cache_sem_c"
 #define SHM_SEGMENT_PREFIX "/cache_shm_segment"
 #define SHM_SEGMENT_SIZE 8192
 #define MAX_CACHE_REQUEST_LEN 6112
