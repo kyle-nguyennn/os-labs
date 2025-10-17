@@ -9,7 +9,9 @@
 #include <linux/limits.h>
 #define CACHE_COMMAND_QUEUE_NAME "/cache_command_queue"
 #define CACHE_REPLY_QUEUE_PREFIX "/cache_reply_queue"
+#define SEM_PREFIX "/cache_sem"
 #define SHM_SEGMENT_PREFIX "/cache_shm_segment"
+#define SHM_SEGMENT_SIZE 8192
 #define MAX_CACHE_REQUEST_LEN 6112
 #define MAX_SIMPLE_CACHE_QUEUE_SIZE 783
 

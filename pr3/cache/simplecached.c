@@ -131,6 +131,7 @@ void handle_cache_get() {
             // TODO: open a memory segment to send data back
             sprintf(cache_reply, "TODO: reply with shared mem name (semaphore name is induced from shared mem name");
             mq_send(reply_mq, cache_reply, strlen(cache_reply), 0);
+
         }
     }
 }

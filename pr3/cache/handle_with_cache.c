@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <linux/limits.h>
 #include <mqueue.h>
+#include <semaphore.h>
 #include <stdatomic.h>
 
 #define BUFSIZE (840)
@@ -52,6 +53,12 @@ ssize_t handle_with_cache(gfcontext_t *ctx, const char *path, void* arg){
     }
     buffer[bytes_received] = '\0';
     printf("Response from cache: %s\n", buffer);
+
+    if (strcmp(buffer, "FILE_NOT_FOUND") == 0) {
+        gfs_sendheader(ctx, GF_FILE_NOT_FOUND, 0);
+    } else {
+        // listen on semaphore for signal from cache to read data from shared mem
+    }
 
 	return bytes_transferred;
 }

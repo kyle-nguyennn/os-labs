@@ -11,6 +11,12 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include <mqueue.h>
+#include <semaphore.h>
+#include <fcntl.h>    // For O_CREAT, O_RDWR
+#include <sys/stat.h> // For mode_t permissions
+#include <sys/mman.h> // For shm_open
+#include <unistd.h> // For ftruncate
+#include <sys/mman.h> // For mmap
 
 #include "cache-student.h"
 #include "gfserver.h"
@@ -56,6 +62,32 @@ void cleanup_mq() {
     sprintf(cache_reply_queue_name, "%s_%d", CACHE_REPLY_QUEUE_PREFIX, thread_id);
     if(mq_unlink(cache_reply_queue_name) == 0) {
         printf("Message queue %s removed from system.\n", cache_reply_queue_name);
+    } else {
+        perror("mq_unlink failed");
+    }
+  }
+}
+
+void cleanup_sem() {
+  for (int thread_id=0; thread_id < nworkerthreads; thread_id++) {
+    char sem_name[50];
+    sprintf(sem_name, "%s_%d", SEM_PREFIX, thread_id);
+    if(sem_unlink(sem_name) == 0) {
+        printf("Semaphore %s removed from system.\n", sem_name);
+    } else {
+        perror("sem_unlink failed");
+    }
+  }
+}
+
+void cleanup_shm() {
+  for (int thread_id=0; thread_id < nworkerthreads; thread_id++) {
+    char shm_name[50];
+    sprintf(shm_name, "%s_%d", SHM_SEGMENT_PREFIX, thread_id);
+    if(shm_unlink(shm_name) == 0) {
+        printf("Shared memory %s removed from system.\n", shm_name);
+    } else {
+        perror("shm_unlink failed");
     }
   }
 }
@@ -66,6 +98,8 @@ static void _sig_handler(int signo){
     gfserver_stop(&gfs);
     atomic_store(&g_shutdown, 1);
     cleanup_mq();
+    cleanup_sem();
+    cleanup_shm();
     exit(signo);
   }
 }
@@ -154,6 +188,7 @@ int main(int argc, char **argv) {
 
   /* Initialize shared memory set-up here */
   // Prepare 1 reply queue per thread
+  // Prepare 1 semaphore per thread
   struct mq_attr attr;
   attr.mq_flags = 0;
   attr.mq_maxmsg = 10;     // Max messages in queue
@@ -161,12 +196,36 @@ int main(int argc, char **argv) {
   attr.mq_curmsgs = 0;     // Current messages (ignored for mq_open)
   for (int thread_id=0; thread_id < nworkerthreads; thread_id++) {
     char cache_reply_queue_name[50];
+    char sem_name[50];
+    char shm_name[50];
     sprintf(cache_reply_queue_name, "%s_%d", CACHE_REPLY_QUEUE_PREFIX, thread_id);
+    sprintf(sem_name, "%s_%d", SEM_PREFIX, thread_id);
+    sprintf(shm_name, "%s_%d", SHM_SEGMENT_PREFIX, thread_id);
+    // Init MQ
     if (0> mq_open(cache_reply_queue_name, O_CREAT, 0666, &attr)) {
       perror("webproxy init cache_reply_mq: mq_open");
     }
+    // Init semaphore
+    if (SEM_FAILED == sem_open(sem_name, O_CREAT, 0666, 0)){ // Initial value 0
+      perror("webproxy init sem: sem_open");
+    }
+    // Init Shared memory
+    int shm_fd;
+    if ((shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666)) < 0) {
+      perror("webproxy init shm: shm_open");
+    }
+    if (ftruncate(shm_fd, SHM_SEGMENT_SIZE) == -1) {
+      perror("webproxy init shm: ftruncate");
+    }
+    void* ptr;
+    ptr = mmap(0, SHM_SEGMENT_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (ptr == MAP_FAILED) {
+      perror("webproxy init shm: mmap");
+    }
+
   }
   // TODO: prepare shared memory segment for each thread
+  
 
   // Initialize server structure here
   gfserver_init(&gfs, nworkerthreads);
