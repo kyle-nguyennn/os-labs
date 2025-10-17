@@ -100,17 +100,17 @@ int handle_file(int fd) {
 void handle_cache_get() {
     // Get new message queue
     while (1) {
-        char cache_command[MAX_CACHE_REQUEST_LEN+1];
+        cache_command_t cache_command;
         char cache_reply[MAX_CACHE_REQUEST_LEN+1];
-        ssize_t bytes_received = mq_receive(cache_mq, cache_command, MAX_CACHE_REQUEST_LEN+1, NULL);
+        ssize_t bytes_received = mq_receive(cache_mq, (char*)&cache_command, MAX_CACHE_REQUEST_LEN+1, NULL);
         if (bytes_received < 0) {
             perror("mq_receive");
             // exit this request
             return; // TODO: continue in worker loop
         }
         // Null terminated string
-        cache_command[bytes_received] = '\0';
-        int fd = simplecache_get(cache_command);
+        printf("Receive from thread %d, path: %s\n", cache_command.thread_id, cache_command.path);
+        int fd = simplecache_get(cache_command.path);
         if (fd == -1) {
             fprintf(stderr, "File not found\n"); 
             // send reply back to client
