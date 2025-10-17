@@ -21,7 +21,6 @@ ssize_t handle_with_cache(gfcontext_t *ctx, const char *path, void* arg){
 	int *thread_id = arg;
 	// ssize_t read_len;
     // ssize_t write_len;
-	char buffer[MAX_CACHE_REQUEST_LEN];
 	// int fildes;
 	// struct stat statbuf;
     
@@ -46,18 +45,31 @@ ssize_t handle_with_cache(gfcontext_t *ctx, const char *path, void* arg){
         perror("mq_open");
         exit(EXIT_FAILURE);
     }
-    bytes_received = mq_receive(reply_mq, buffer, MAX_CACHE_REQUEST_LEN+1, NULL);
-    if (bytes_received < 0) {
+    cache_reply_t cache_reply;
+    if (0> mq_receive(reply_mq, (char*)&cache_reply, MAX_CACHE_REQUEST_LEN+1, NULL)) {
         perror("handle_with_cache: mq_receive");
         return -1;
     }
-    buffer[bytes_received] = '\0';
-    printf("Response from cache: %s\n", buffer);
+    printf("Response from cache: status=%d, file_len=%ld\n", cache_reply.status, cache_reply.file_len);
 
-    if (strcmp(buffer, "FILE_NOT_FOUND") == 0) {
+    if (cache_reply.status == CACHE_FILE_NOT_FOUND) {
         gfs_sendheader(ctx, GF_FILE_NOT_FOUND, 0);
     } else {
         // listen on semaphore for signal from cache to read data from shared mem
+        char sem_name[50];
+        sprintf(sem_name, "%s_%d", SEM_PREFIX, *thread_id);
+        sem_t *sem = sem_open(sem_name, 0); // Open existing semaphore
+        if (sem == SEM_FAILED) {
+            perror("sem_open failed");
+        }
+        // TODO: open shm to read
+        while (bytes_received < cache_reply.file_len) {
+            if (sem_wait(sem) == -1) {
+                perror("sem_wait failed");
+            }
+            // TODO: read from shm
+        }
+
     }
 
 	return bytes_transferred;

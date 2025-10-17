@@ -10,13 +10,6 @@
 #include <limits.h>
 #include <getopt.h>
 #include <stdlib.h>
-#include <mqueue.h>
-#include <semaphore.h>
-#include <fcntl.h>    // For O_CREAT, O_RDWR
-#include <sys/stat.h> // For mode_t permissions
-#include <sys/mman.h> // For shm_open
-#include <unistd.h> // For ftruncate
-#include <sys/mman.h> // For mmap
 
 #include "cache-student.h"
 #include "gfserver.h"

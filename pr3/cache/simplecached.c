@@ -104,7 +104,7 @@ void handle_cache_get() {
     // Get new message queue
     while (1) {
         cache_command_t cache_command;
-        char cache_reply[MAX_CACHE_REQUEST_LEN+1];
+        cache_reply_t cache_reply;
         ssize_t bytes_received = mq_receive(cache_mq, (char*)&cache_command, MAX_CACHE_REQUEST_LEN+1, NULL);
         if (bytes_received < 0) {
             perror("mq_receive");
@@ -125,12 +125,28 @@ void handle_cache_get() {
         if (fd == -1) {
             fprintf(stderr, "File not found\n"); 
             // send reply back to client
-            sprintf(cache_reply, "FILE_NOT_FOUND");
-            mq_send(reply_mq, cache_reply, strlen(cache_reply), 0);
+            cache_reply.status = CACHE_FILE_NOT_FOUND;
+            cache_reply.file_len = -1;
+            mq_send(reply_mq, (const char*)&cache_reply, sizeof(cache_reply), 0);
         } else {
             // TODO: open a memory segment to send data back
-            sprintf(cache_reply, "TODO: reply with shared mem name (semaphore name is induced from shared mem name");
-            mq_send(reply_mq, cache_reply, strlen(cache_reply), 0);
+            cache_reply.status = CACHE_OK;
+            cache_reply.file_len = -1; // TODO: fstat(fd) to get file len
+            mq_send(reply_mq, (const char*)&cache_reply, sizeof(cache_reply), 0);
+            // Open corresponding semaphore for flow control
+            char sem_name[50];
+            sprintf(sem_name, "%s_%d", SEM_PREFIX, cache_command.thread_id);
+            sem_t *sem = sem_open(sem_name, 0); // Open existing semaphore
+            if (sem == SEM_FAILED) {
+                perror("sem_open failed");
+            }
+            // TODO: Open corresponding shared memory for data transfer
+
+            // TODO: stream fd content to shm by the shm size and signal cache thread
+            // sem_post signal cache thread to process the shm
+            if (sem_post(sem) == -1) {
+                perror("sem_wait failed");
+            }
 
         }
     }
@@ -205,8 +221,6 @@ int main(int argc, char **argv) {
     // handle mq message in thread, following boss-worker pattern
     printf("Created message queue %d\n", cache_mq);
     handle_cache_get();
-
-    // TODO: proper SIGTERM and SIGINT handler to unlink queue
 
 	// Line never reached
 	return -1;
