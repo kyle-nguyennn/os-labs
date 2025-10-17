@@ -27,6 +27,9 @@ mqd_t cache_mq;
 static void _sig_handler(int signo){
 	if (signo == SIGTERM || signo == SIGINT){
 		// This is where your IPC clean up should occur
+        if(mq_unlink(CACHE_COMMAND_QUEUE_NAME) == 0) {
+            printf("Message queue %s removed from system.\n", CACHE_COMMAND_QUEUE_NAME);
+        }
 		exit(signo);
 	}
 }
@@ -111,15 +114,23 @@ void handle_cache_get() {
         // Null terminated string
         printf("Receive from thread %d, path: %s\n", cache_command.thread_id, cache_command.path);
         int fd = simplecache_get(cache_command.path);
+        // reply on thread-specific channel
+        char cache_reply_queue_name[50];
+        sprintf(cache_reply_queue_name, "%s_%d", CACHE_REPLY_QUEUE_PREFIX, cache_command.thread_id);
+        mqd_t reply_mq = mq_open(cache_reply_queue_name, O_WRONLY, 0666, NULL);
+        if (reply_mq == (mqd_t)-1) {
+            perror("mq_open");
+            exit(EXIT_FAILURE);
+        }
         if (fd == -1) {
             fprintf(stderr, "File not found\n"); 
             // send reply back to client
             sprintf(cache_reply, "FILE_NOT_FOUND");
-            mq_send(cache_mq, cache_reply, strlen(cache_reply), 0);
+            mq_send(reply_mq, cache_reply, strlen(cache_reply), 0);
         } else {
             // TODO: open a memory segment to send data back
             sprintf(cache_reply, "TODO: reply with shared mem name (semaphore name is induced from shared mem name");
-            mq_send(cache_mq, cache_reply, strlen(cache_reply), 0);
+            mq_send(reply_mq, cache_reply, strlen(cache_reply), 0);
         }
     }
 }
@@ -195,9 +206,6 @@ int main(int argc, char **argv) {
     handle_cache_get();
 
     // TODO: proper SIGTERM and SIGINT handler to unlink queue
-    if(mq_unlink(CACHE_COMMAND_QUEUE_NAME) == 0) {
-        printf("Message queue %s removed from system.\n", CACHE_COMMAND_QUEUE_NAME);
-    }
 
 	// Line never reached
 	return -1;

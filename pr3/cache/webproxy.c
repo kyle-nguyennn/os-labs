@@ -1,3 +1,4 @@
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/signal.h>
@@ -9,6 +10,7 @@
 #include <limits.h>
 #include <getopt.h>
 #include <stdlib.h>
+#include <mqueue.h>
 
 #include "cache-student.h"
 #include "gfserver.h"
@@ -45,11 +47,25 @@ static struct option gLongOptions[] = {
 static gfserver_t gfs;
 //handles cache
 extern ssize_t handle_with_cache(gfcontext_t *ctx, char *path, void* arg);
+atomic_int g_shutdown = 0;
+unsigned short nworkerthreads = 8;
+
+void cleanup_mq() {
+  for (int thread_id=0; thread_id < nworkerthreads; thread_id++) {
+    char cache_reply_queue_name[50];
+    sprintf(cache_reply_queue_name, "%s_%d", CACHE_REPLY_QUEUE_PREFIX, thread_id);
+    if(mq_unlink(cache_reply_queue_name) == 0) {
+        printf("Message queue %s removed from system.\n", cache_reply_queue_name);
+    }
+  }
+}
 
 static void _sig_handler(int signo){
   if (signo == SIGTERM || signo == SIGINT){
     //cleanup could go here
     gfserver_stop(&gfs);
+    atomic_store(&g_shutdown, 1);
+    cleanup_mq();
     exit(signo);
   }
 }
@@ -59,7 +75,6 @@ int main(int argc, char **argv) {
   char *server = "https://raw.githubusercontent.com/gt-cs6200/image_data";
   unsigned int nsegments = 8;
   unsigned short port = 25362;
-  unsigned short nworkerthreads = 8;
   size_t segsize = 5712;
 
   //disable buffering on stdout so it prints immediately */
@@ -137,10 +152,23 @@ int main(int argc, char **argv) {
 
 
 
-  /* Initialize shared memory set-up here
+  /* Initialize shared memory set-up here */
+  // Prepare 1 reply queue per thread
+  struct mq_attr attr;
+  attr.mq_flags = 0;
+  attr.mq_maxmsg = 10;     // Max messages in queue
+  attr.mq_msgsize = MAX_CACHE_REQUEST_LEN;
+  attr.mq_curmsgs = 0;     // Current messages (ignored for mq_open)
+  for (int thread_id=0; thread_id < nworkerthreads; thread_id++) {
+    char cache_reply_queue_name[50];
+    sprintf(cache_reply_queue_name, "%s_%d", CACHE_REPLY_QUEUE_PREFIX, thread_id);
+    if (0> mq_open(cache_reply_queue_name, O_CREAT, 0666, &attr)) {
+      perror("webproxy init cache_reply_mq: mq_open");
+    }
+  }
+  // TODO: prepare shared memory segment for each thread
 
   // Initialize server structure here
-  */
   gfserver_init(&gfs, nworkerthreads);
 
   // Set server options here
@@ -158,6 +186,8 @@ int main(int argc, char **argv) {
   
   // Invokethe framework - this is an infinite loop and will not return
   gfserver_serve(&gfs);
+
+  // TODO: On SIGTERM and SIGINT, clean up shared memory and message queue
 
   // line never reached
   return -1;
