@@ -1,3 +1,4 @@
+#include <grpcpp/impl/codegen/status.h>
 #include <regex>
 #include <vector>
 #include <string>
@@ -19,6 +20,7 @@
 #include "dfslib-shared-p1.h"
 #include "dfslib-clientnode-p1.h"
 #include "proto-src/dfs-service.grpc.pb.h"
+#include "proto-src/dfs-service.pb.h"
 
 using grpc::Status;
 using grpc::Channel;
@@ -39,6 +41,7 @@ using grpc::ClientContext;
 //      using dfs_service::MyMethod
 //
 
+#define DEADLINE_TIMEOUT 100
 
 DFSClientNodeP1::DFSClientNodeP1() : DFSClientNode() {}
 
@@ -87,6 +90,19 @@ StatusCode DFSClientNodeP1::Fetch(const std::string &filename) {
     // StatusCode::CANCELLED otherwise
     //
     //
+    ClientContext context;
+    auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(DEADLINE_TIMEOUT);
+    context.set_deadline(deadline);
+
+    dfs_service::FetchRequest fetchReq;
+    fetchReq.set_file_name(filename);
+
+    dfs_service::FetchResponse resp;
+
+    dfs_log(LL_DEBUG) << "Fetch: " << filename;
+    grpc::Status rpc_status = this->service_stub->Fetch(&context, fetchReq, &resp);
+    dfs_log(LL_DEBUG) << "Fetch Response status: " << rpc_status.error_message();
+    return rpc_status.error_code();
 }
 
 StatusCode DFSClientNodeP1::Delete(const std::string& filename) {

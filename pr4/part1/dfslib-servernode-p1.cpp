@@ -1,6 +1,7 @@
 #include <map>
 #include <chrono>
 #include <cstdio>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <errno.h>
@@ -88,7 +89,38 @@ public:
     // Add your additional code here, including
     // implementations of your protocol service methods
     //
+    Status Fetch(ServerContext* context,
+             const dfs_service::FetchRequest* request,
+             dfs_service::FetchResponse* resp) override {
+        const std::string path = WrapPath(request->file_name());
+        std::ifstream file(path, std::ios::binary);
+        
+        dfs_log(LL_DEBUG) << "Received Fetch: " << path << " from client " << context->peer();
+        if (!file.is_open()) {
+            return Status(StatusCode::NOT_FOUND, "missing file");
+        }
 
+        // TODO: this is for streaming later, no need for now
+        // dfs_service::FetchResponse chunk;
+        // std::array<char, 4096> buffer{};
+        // while (file && context->IsCancelled() == false) {
+        //     file.read(buffer.data(), buffer.size());
+        //     std::streamsize read_bytes = file.gcount();
+        //     if (read_bytes <= 0) break;
+
+            // chunk.set_data(buffer.data(), static_cast<size_t>(read_bytes));
+            // if (!writer->Write(chunk)) {
+            //     return Status(StatusCode::CANCELLED, "stream broken");
+            // }
+        // }
+        std:std::ostringstream buffer;
+        buffer << file.rdbuf();
+        resp->set_file_content(buffer.str());
+        if (context->IsCancelled()) {
+            return Status(StatusCode::DEADLINE_EXCEEDED, "deadline");
+        }
+        return Status::OK;
+    }
 
 };
 
