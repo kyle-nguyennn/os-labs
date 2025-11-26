@@ -143,7 +143,24 @@ StatusCode DFSClientNodeP1::List(std::map<std::string,int>* file_map, bool displ
     // StatusCode::DEADLINE_EXCEEDED - if the deadline timeout occurs
     // StatusCode::CANCELLED otherwise
     //
-    //
+    
+    ClientContext context;
+    auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(DEADLINE_TIMEOUT);
+    context.set_deadline(deadline);
+
+    dfs_service::ListRequest listReq;
+
+    dfs_service::ListResponse resp;
+
+    dfs_log(LL_DEBUG) << "List: ";
+    grpc::Status rpc_status = this->service_stub->List(&context, listReq, &resp);
+    dfs_log(LL_DEBUG) << "List Response status: " << rpc_status.error_message();
+    dfs_log(LL_DEBUG) << "List Response file_info len: " << resp.file_info().size();
+    for (auto& entry: resp.file_info()) {
+        (*file_map)[entry.first] = static_cast<int>(entry.second);
+        dfs_log(LL_DEBUG) << "File map entry: " << entry.first << " -> " << entry.second;
+    }
+    return rpc_status.error_code();
 }
 
 StatusCode DFSClientNodeP1::Stat(const std::string &filename, void* file_status) {

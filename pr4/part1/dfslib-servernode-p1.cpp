@@ -122,6 +122,33 @@ public:
         return Status::OK;
     }
 
+    Status List(ServerContext* context,
+             const dfs_service::ListRequest* request,
+             dfs_service::ListResponse* resp) override {
+        const std::string path = WrapPath("");
+        dfs_log(LL_DEBUG) << "Received List from client " << context->peer();
+
+        DIR* dir = opendir(path.c_str());
+        if (dir == nullptr) {
+            return Status(StatusCode::NOT_FOUND, "missing directory");
+        }
+
+        struct dirent* entry;
+        while ((entry = readdir(dir)) != nullptr) {
+            if (entry->d_type == DT_REG) { // regular file
+                std::string filepath = path + entry->d_name;
+                struct stat file_stat;
+                if (stat(filepath.c_str(), &file_stat) == 0) {
+                    resp->mutable_file_info()->insert({entry->d_name, static_cast<int64_t>(file_stat.st_mtime)});
+                }
+            }
+        }
+        closedir(dir);
+        if (context->IsCancelled()) {
+            return Status(StatusCode::DEADLINE_EXCEEDED, "deadline");
+        }
+        return Status::OK;
+    }
 };
 
 //
