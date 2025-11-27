@@ -1,4 +1,6 @@
+#include <cstddef>
 #include <grpcpp/impl/codegen/status.h>
+#include <grpcpp/impl/codegen/status_code_enum.h>
 #include <regex>
 #include <vector>
 #include <string>
@@ -66,6 +68,52 @@ StatusCode DFSClientNodeP1::Store(const std::string &filename) {
     // StatusCode::NOT_FOUND - if the file cannot be found on the client
     // StatusCode::CANCELLED otherwise
     //
+
+    ClientContext context;
+    auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(DEADLINE_TIMEOUT);
+    context.set_deadline(deadline);
+
+    dfs_service::StoreResponse resp;
+
+    std::unique_ptr<ClientWriter<dfs_service::FileChunk>> writer(
+        this->service_stub->Store(&context, &resp));
+    const std::string path = WrapPath(filename);
+    std::ifstream file(path, std::ios::binary | std::ios::in);
+    if (!file) {
+        dfs_log(LL_ERROR) << "Unable to open file: " << path;
+        return StatusCode::CANCELLED;
+    }
+
+    const size_t chunk_size = 64 * 1024; // 64 MB
+    dfs_log(LL_DEBUG) << "Storing: " << path;
+    std::string buffer;
+    buffer.resize(chunk_size);
+    // int64_t offset = 0;
+
+    while (file) {
+        file.read(&buffer[0], chunk_size);
+        std::streamsize bytesRead = file.gcount();
+        dfs_log(LL_DEBUG) << "Streaming " << bytesRead << " bytes from file.";
+        if (bytesRead <= 0) break; // done
+
+        dfs_service::FileChunk chunk;
+        chunk.set_file_name(filename);
+        chunk.set_data(buffer.data(), static_cast<size_t>(bytesRead));
+
+        if (!writer->Write(chunk)){
+            dfs_log(LL_ERROR) << "Server closed stream unexpectedly";
+            break;
+        }
+    }
+    writer->WritesDone();
+    dfs_log(LL_DEBUG) << "Finished sending file data, waiting for server response...";
+    Status rpcStatus = writer->Finish();
+    if (!rpcStatus.ok()) {
+        dfs_log(LL_ERROR) << "Store failed: " << rpcStatus.error_message();
+    } else {
+        dfs_log(LL_DEBUG) << "Store done: " << resp.ok() << " message=" << resp.message();
+    }
+    return rpcStatus.error_code();
 }
 
 
@@ -97,12 +145,34 @@ StatusCode DFSClientNodeP1::Fetch(const std::string &filename) {
     dfs_service::FetchRequest fetchReq;
     fetchReq.set_file_name(filename);
 
-    dfs_service::FetchResponse resp;
+    std::unique_ptr<grpc::ClientReader<dfs_service::FileChunk>> reader(
+            this->service_stub->Fetch(&context, fetchReq));
 
-    dfs_log(LL_DEBUG) << "Fetch: " << filename;
-    grpc::Status rpc_status = this->service_stub->Fetch(&context, fetchReq, &resp);
-    dfs_log(LL_DEBUG) << "Fetch Response status: " << rpc_status.error_message();
-    return rpc_status.error_code();
+    const std::string path = WrapPath(filename);
+    std::ofstream outfile(path, std::ios::binary | std::ios::out);
+    if (!outfile) {
+        std::cerr << "Unable to open output " << path << "\n";
+        return StatusCode::CANCELLED;
+    }
+
+    dfs_service::FileChunk chunk;
+
+    dfs_log(LL_DEBUG) << "Fetch: " << path;
+    size_t total_bytes = 0;
+    while (reader->Read(&chunk)) {
+        outfile.write(chunk.data().data(), chunk.data().size());
+        total_bytes += chunk.data().size();
+        dfs_log(LL_DEBUG) << "Received: " << chunk.data().size() << " bytes. Total: " << total_bytes;
+    }
+    dfs_log(LL_DEBUG) << "Finished receiving file data. Total bytes: " << total_bytes;
+    outfile.close();
+    Status rpcStatus = reader->Finish();
+    if (!rpcStatus.ok()) {
+        dfs_log(LL_ERROR) << "Fetch failed: " << rpcStatus.error_message();
+    } else {
+        dfs_log(LL_DEBUG) << "Fetch done: " << rpcStatus.error_code();
+    }
+    return rpcStatus.error_code();
 }
 
 StatusCode DFSClientNodeP1::Delete(const std::string& filename) {
@@ -121,6 +191,7 @@ StatusCode DFSClientNodeP1::Delete(const std::string& filename) {
     // StatusCode::CANCELLED otherwise
     //
 
+    return StatusCode::OK;
 }
 
 StatusCode DFSClientNodeP1::List(std::map<std::string,int>* file_map, bool display) {
@@ -153,7 +224,7 @@ StatusCode DFSClientNodeP1::List(std::map<std::string,int>* file_map, bool displ
     dfs_service::ListResponse resp;
 
     dfs_log(LL_DEBUG) << "List: ";
-    grpc::Status rpc_status = this->service_stub->List(&context, listReq, &resp);
+    Status rpc_status = this->service_stub->List(&context, listReq, &resp);
     dfs_log(LL_DEBUG) << "List Response status: " << rpc_status.error_message();
     dfs_log(LL_DEBUG) << "List Response file_info len: " << resp.file_info().size();
     for (auto& entry: resp.file_info()) {
@@ -186,7 +257,8 @@ StatusCode DFSClientNodeP1::Stat(const std::string &filename, void* file_status)
     // StatusCode::NOT_FOUND - if the file cannot be found on the server
     // StatusCode::CANCELLED otherwise
     //
-    //
+
+    return StatusCode::OK;
 }
 
 //
