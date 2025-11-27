@@ -111,7 +111,7 @@ StatusCode DFSClientNodeP1::Store(const std::string &filename) {
     if (!rpcStatus.ok()) {
         dfs_log(LL_ERROR) << "Store failed: " << rpcStatus.error_message();
     } else {
-        dfs_log(LL_DEBUG) << "Store done: " << resp.ok() << " message=" << resp.message();
+        dfs_log(LL_DEBUG) << "Store done: status=" << resp.ok() << ". message=" << resp.message();
     }
     return rpcStatus.error_code();
 }
@@ -191,7 +191,17 @@ StatusCode DFSClientNodeP1::Delete(const std::string& filename) {
     // StatusCode::CANCELLED otherwise
     //
 
-    return StatusCode::OK;
+    ClientContext context;
+    auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(DEADLINE_TIMEOUT);
+    context.set_deadline(deadline);
+
+    dfs_service::DeleteRequest deleteReq;
+    deleteReq.set_file_name(filename);
+    dfs_service::DeleteResponse resp;
+    dfs_log(LL_DEBUG) << "Delete: " << filename;
+    Status rpc_status = this->service_stub->Delete(&context, deleteReq, &resp);
+    dfs_log(LL_DEBUG) << "Delete Response status: " << resp.message();
+    return rpc_status.error_code();
 }
 
 StatusCode DFSClientNodeP1::List(std::map<std::string,int>* file_map, bool display) {

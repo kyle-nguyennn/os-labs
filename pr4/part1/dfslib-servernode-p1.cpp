@@ -169,6 +169,24 @@ public:
         return Status(StatusCode::OK, "fetch ok");
     }
 
+    Status Delete(ServerContext* context,
+             const dfs_service::DeleteRequest* request,
+             dfs_service::DeleteResponse* resp) override {
+        const std::string path = WrapPath(request->file_name());
+        dfs_log(LL_DEBUG) << "Received Delete: " << path << " from client " << context->peer();
+
+        if (std::remove(path.c_str()) != 0) {
+            return Status(StatusCode::NOT_FOUND, "file not found");
+        }
+
+        if (context->IsCancelled()) {
+            return Status(StatusCode::DEADLINE_EXCEEDED, "deadline");
+        }
+        resp->set_ok(true);
+        resp->set_message("delete ok");
+        return Status::OK;
+    }
+
     Status List(ServerContext* context,
              const dfs_service::ListRequest* request,
              dfs_service::ListResponse* resp) override {
