@@ -146,9 +146,17 @@ public:
             return Status(StatusCode::NOT_FOUND, "missing file");
         }
 
-        // TODO: this is for streaming later, no need for now
+        struct stat st {};
+        if (stat(path.c_str(), &st) != 0) {
+            return Status(StatusCode::NOT_FOUND, "missing file");
+        }
+        const off_t file_size = st.st_size;
+        dfs_log(LL_DEBUG) << "File size: " << file_size;
+
+        size_t bytesSent = 0;
         dfs_service::FileChunk chunk;
         std::array<char, 4096> buffer{};
+
         while (file && context->IsCancelled() == false) {
             file.read(buffer.data(), buffer.size());
             std::streamsize read_bytes = file.gcount();
@@ -158,12 +166,15 @@ public:
             if (!writer->Write(chunk)) {
                 return Status(StatusCode::CANCELLED, "stream broken");
             }
+            bytesSent += static_cast<size_t>(read_bytes);
+            dfs_log(LL_DEBUG) << path << " Sent: " << bytesSent << "/" << file_size << " bytes";
         }
         // std:std::ostringstream buffer;
         // buffer << file.rdbuf();
         // resp->set_file_content(buffer.str());
         if (context->IsCancelled()) {
             // Client cancelled due to deadline exceeded
+            dfs_log(LL_DEBUG) << "Fetch cancelled by client";
             return Status(StatusCode::DEADLINE_EXCEEDED, "deadline");
         }
         return Status(StatusCode::OK, "fetch ok");

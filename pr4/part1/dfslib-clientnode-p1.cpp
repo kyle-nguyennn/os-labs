@@ -43,7 +43,6 @@ using grpc::ClientContext;
 //      using dfs_service::MyMethod
 //
 
-#define DEADLINE_TIMEOUT 100
 
 DFSClientNodeP1::DFSClientNodeP1() : DFSClientNode() {}
 
@@ -70,7 +69,8 @@ StatusCode DFSClientNodeP1::Store(const std::string &filename) {
     //
 
     ClientContext context;
-    auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(DEADLINE_TIMEOUT);
+    auto deadline = std::chrono::system_clock::now() +
+               std::chrono::milliseconds(this->deadline_timeout);
     context.set_deadline(deadline);
 
     dfs_service::StoreResponse resp;
@@ -109,7 +109,8 @@ StatusCode DFSClientNodeP1::Store(const std::string &filename) {
     dfs_log(LL_DEBUG) << "Finished sending file data, waiting for server response...";
     Status rpcStatus = writer->Finish();
     if (!rpcStatus.ok()) {
-        dfs_log(LL_ERROR) << "Store failed: " << rpcStatus.error_message();
+        dfs_log(LL_ERROR) << "Store failed: status=" << rpcStatus.error_code() 
+                                << " message=" << rpcStatus.error_message();
     } else {
         dfs_log(LL_DEBUG) << "Store done: status=" << resp.ok() << ". message=" << resp.message();
     }
@@ -139,7 +140,8 @@ StatusCode DFSClientNodeP1::Fetch(const std::string &filename) {
     //
     //
     ClientContext context;
-    auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(DEADLINE_TIMEOUT);
+    auto deadline = std::chrono::system_clock::now() +
+               std::chrono::milliseconds(this->deadline_timeout);
     context.set_deadline(deadline);
 
     dfs_service::FetchRequest fetchReq;
@@ -168,7 +170,8 @@ StatusCode DFSClientNodeP1::Fetch(const std::string &filename) {
     outfile.close();
     Status rpcStatus = reader->Finish();
     if (!rpcStatus.ok()) {
-        dfs_log(LL_ERROR) << "Fetch failed: " << rpcStatus.error_message();
+        dfs_log(LL_ERROR) << "Fetch failed: " << "status=" << rpcStatus.error_code() 
+                                << " message=" << rpcStatus.error_message();
     } else {
         dfs_log(LL_DEBUG) << "Fetch done: " << rpcStatus.error_code();
     }
@@ -192,7 +195,8 @@ StatusCode DFSClientNodeP1::Delete(const std::string& filename) {
     //
 
     ClientContext context;
-    auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(DEADLINE_TIMEOUT);
+    auto deadline = std::chrono::system_clock::now() +
+               std::chrono::milliseconds(this->deadline_timeout);
     context.set_deadline(deadline);
 
     dfs_service::DeleteRequest deleteReq;
@@ -226,7 +230,8 @@ StatusCode DFSClientNodeP1::List(std::map<std::string,int>* file_map, bool displ
     //
     
     ClientContext context;
-    auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(DEADLINE_TIMEOUT);
+    auto deadline = std::chrono::system_clock::now() +
+               std::chrono::milliseconds(this->deadline_timeout);
     context.set_deadline(deadline);
 
     dfs_service::ListRequest listReq;
