@@ -27,6 +27,7 @@ service DFSService {
     //                            from a client. This method should return a listing of files along with their
     //                            attribute information. The expected attribute information should include name,
     //                            size, modified time, and creation time.
+    rpc CallbackList(CallbackListRequest) returns (CallbackListResponse);
 
     // 7. REQUIRED (Part 2 only): A method to delete a file from the server
     rpc Delete (DeleteRequest) returns (DeleteResponse);
@@ -68,6 +69,7 @@ message ListResponse {
 
 message LockRequest {
     string file_name = 1;
+    string client_id = 2;
 }
 
 message LockResponse {
@@ -75,3 +77,18 @@ message LockResponse {
     string holder = 2;
 }
 
+message FileInfo {
+    string file_name = 1;
+    uint32 crc = 2;
+    int64 mtime = 3;
+    bool deleted = 4;
+}
+
+message CallbackListRequest {
+    string client_id = 1;
+    string name = 2;
+}
+
+message CallbackListResponse {
+    repeated FileInfo files = 1;
+}

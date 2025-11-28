@@ -40,8 +40,8 @@ extern dfs_log_level_e DFS_LOG_LEVEL;
 // message types you are using to indicate
 // a file request and a listing of files from the server.
 //
-using FileRequestType = FileRequest;
-using FileListResponseType = FileList;
+using FileRequestType = dfs_service::CallbackListRequest;
+using FileListResponseType = dfs_service::CallbackListResponse;
 
 DFSClientNodeP2::DFSClientNodeP2() : DFSClientNode() {}
 DFSClientNodeP2::~DFSClientNodeP2() {}
@@ -65,10 +65,42 @@ grpc::StatusCode DFSClientNodeP2::RequestWriteAccess(const std::string &filename
     // StatusCode::CANCELLED otherwise
     //
     //
+    ClientContext context;
+    auto deadline = std::chrono::system_clock::now() +
+               std::chrono::milliseconds(this->deadline_timeout);
+    context.set_deadline(deadline);
+
+    dfs_service::LockRequest lockReq;
+    lockReq.set_file_name(filename);
+    lockReq.set_client_id(this->client_id);
+    dfs_service::LockResponse resp;
+    dfs_log(LL_DEBUG) << "Acquire Lock for file : " << filename;
+    Status rpc_status = this->service_stub->AcquireWriteLock(&context, lockReq, &resp);
+    dfs_log(LL_DEBUG) << "Acquire Lock Response status: " << rpc_status.error_message();
+    dfs_log(LL_DEBUG) << "Acquire Lock Response: granted=" << resp.granted() << " holder=" << resp.holder();
+    return rpc_status.error_code();
 
 }
 
-StatusCode DFSClientNodeP1::Store(const std::string &filename) {
+grpc::StatusCode DFSClientNodeP2::ReleaseWriteAccess(const std::string &filename) {
+    ClientContext context;
+    auto deadline = std::chrono::system_clock::now() +
+               std::chrono::milliseconds(this->deadline_timeout);
+    context.set_deadline(deadline);
+
+    dfs_service::LockRequest lockReq;
+    lockReq.set_file_name(filename);
+    lockReq.set_client_id(this->client_id);
+    dfs_service::LockResponse resp;
+    dfs_log(LL_DEBUG) << "Release Lock for file : " << filename;
+    Status rpc_status = this->service_stub->ReleaseWriteLock(&context, lockReq, &resp);
+    dfs_log(LL_DEBUG) << "Acquire Lock Response status: " << rpc_status.error_message();
+    dfs_log(LL_DEBUG) << "Acquire Lock Response: granted=" << resp.granted() << " holder=" << resp.holder();
+    return rpc_status.error_code();
+
+}
+
+StatusCode DFSClientNodeP2::Store(const std::string &filename) {
 
     //
     // STUDENT INSTRUCTION:
@@ -87,6 +119,12 @@ StatusCode DFSClientNodeP1::Store(const std::string &filename) {
     // StatusCode::NOT_FOUND - if the file cannot be found on the client
     // StatusCode::CANCELLED otherwise
     //
+
+    StatusCode writeLockStatusCode = this->RequestWriteAccess(filename);
+    if (!writeLockStatusCode != StatusCode::OK) {
+        dfs_log(LL_DEBUG) << "Lock not acquired. statusCode=" << writeLockStatusCode;
+        return StatusCode::CANCELLED;
+    }
 
     ClientContext context;
     auto deadline = std::chrono::system_clock::now() +
@@ -134,11 +172,12 @@ StatusCode DFSClientNodeP1::Store(const std::string &filename) {
     } else {
         dfs_log(LL_DEBUG) << "Store done: status=" << resp.ok() << ". message=" << resp.message();
     }
+
     return rpcStatus.error_code();
 }
 
 
-StatusCode DFSClientNodeP1::Fetch(const std::string &filename) {
+StatusCode DFSClientNodeP2::Fetch(const std::string &filename) {
 
     //
     // STUDENT INSTRUCTION:
@@ -198,7 +237,7 @@ StatusCode DFSClientNodeP1::Fetch(const std::string &filename) {
     return rpcStatus.error_code();
 }
 
-StatusCode DFSClientNodeP1::Delete(const std::string& filename) {
+StatusCode DFSClientNodeP2::Delete(const std::string& filename) {
 
     //
     // STUDENT INSTRUCTION:
@@ -228,7 +267,7 @@ StatusCode DFSClientNodeP1::Delete(const std::string& filename) {
     return rpc_status.error_code();
 }
 
-StatusCode DFSClientNodeP1::List(std::map<std::string,int>* file_map, bool display) {
+StatusCode DFSClientNodeP2::List(std::map<std::string,int>* file_map, bool display) {
 
     //
     // STUDENT INSTRUCTION:
@@ -288,6 +327,7 @@ grpc::StatusCode DFSClientNodeP2::Stat(const std::string &filename, void* file_s
     // StatusCode::CANCELLED otherwise
     //
     //
+    return StatusCode::OK;
 }
 
 void DFSClientNodeP2::InotifyWatcherCallback(std::function<void()> callback) {

@@ -37,8 +37,8 @@ using dfs_service::DFSService;
 // message types you are using in your `dfs-service.proto` file
 // to indicate a file request and a listing of files from the server
 //
-using FileRequestType = FileRequest;
-using FileListResponseType = FileList;
+using FileRequestType = dfs_service::CallbackListRequest;
+using FileListResponseType = dfs_service::CallbackListResponse;
 
 extern dfs_log_level_e DFS_LOG_LEVEL;
 

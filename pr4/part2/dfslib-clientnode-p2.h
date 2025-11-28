@@ -43,6 +43,7 @@ public:
      * @return bool
      */
     grpc::StatusCode RequestWriteAccess(const std::string& filename) override ;
+    grpc::StatusCode ReleaseWriteAccess(const std::string& filename);
 
     /**
      * Store a file from the mount path on to the RPC server
