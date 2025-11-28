@@ -217,6 +217,142 @@ public:
     // the implementations of your rpc protocol methods.
     //
 
+    Status Store(ServerContext* context,
+             ServerReader<dfs_service::FileChunk>* reader,
+             dfs_service::StoreResponse* resp) override {
+        dfs_service::FileChunk chunk;
+        std::ofstream outfile;
+        std::string filename;
+
+        dfs_log(LL_DEBUG) << "Received Store from client " << context->peer();
+        
+        std::string path;
+        size_t bytesReceived = 0;
+        // Read the first chunk to get the filename
+        if (reader->Read(&chunk)) {
+            filename = chunk.file_name();
+            path = WrapPath(filename);
+            outfile.open(path, std::ios::binary);
+            if (!outfile.is_open()) {
+                return Status(StatusCode::NOT_FOUND, "cannot open file for writing");
+            }
+            outfile.write(chunk.data().data(), chunk.data().size());
+            bytesReceived += chunk.data().size();
+            dfs_log(LL_DEBUG) << "Storing: " << path << " Received: " << bytesReceived << " bytes";
+        } else {
+            return Status(StatusCode::CANCELLED, "no data received");
+        }
+
+        // Read the rest of the chunks
+        while (reader->Read(&chunk)) {
+            outfile.write(chunk.data().data(), chunk.data().size());
+            bytesReceived += chunk.data().size();
+            dfs_log(LL_DEBUG) << "Storing: " << path << " Received: " << bytesReceived << " bytes";
+        }
+        outfile.close();
+        dfs_log(LL_DEBUG) << "Finished storing file: " << path << " Total bytes received: " << bytesReceived;
+
+        if (context->IsCancelled()) {
+            return Status(StatusCode::DEADLINE_EXCEEDED, "deadline");
+        }
+        resp->set_ok(true);
+        resp->set_message("store ok");
+        return Status::OK;
+    }
+
+
+    Status Fetch(ServerContext* context,
+             const dfs_service::FetchRequest* request,
+             ServerWriter<dfs_service::FileChunk> *writer) override {
+        const std::string path = WrapPath(request->file_name());
+        std::ifstream file(path, std::ios::binary);
+        
+        dfs_log(LL_DEBUG) << "Received Fetch: " << path << " from client " << context->peer();
+        if (!file.is_open()) {
+            return Status(StatusCode::NOT_FOUND, "missing file");
+        }
+
+        struct stat st {};
+        if (stat(path.c_str(), &st) != 0) {
+            return Status(StatusCode::NOT_FOUND, "missing file");
+        }
+        const off_t file_size = st.st_size;
+        dfs_log(LL_DEBUG) << "File size: " << file_size;
+
+        size_t bytesSent = 0;
+        dfs_service::FileChunk chunk;
+        std::array<char, 4096> buffer{};
+
+        while (file && context->IsCancelled() == false) {
+            file.read(buffer.data(), buffer.size());
+            std::streamsize read_bytes = file.gcount();
+            if (read_bytes <= 0) break;
+
+            chunk.set_data(buffer.data(), static_cast<size_t>(read_bytes));
+            if (!writer->Write(chunk)) {
+                return Status(StatusCode::CANCELLED, "stream broken");
+            }
+            bytesSent += static_cast<size_t>(read_bytes);
+            dfs_log(LL_DEBUG) << path << " Sent: " << bytesSent << "/" << file_size << " bytes";
+        }
+        // std:std::ostringstream buffer;
+        // buffer << file.rdbuf();
+        // resp->set_file_content(buffer.str());
+        if (context->IsCancelled()) {
+            // Client cancelled due to deadline exceeded
+            dfs_log(LL_DEBUG) << "Fetch cancelled by client";
+            return Status(StatusCode::DEADLINE_EXCEEDED, "deadline");
+        }
+        return Status(StatusCode::OK, "fetch ok");
+    }
+
+    Status Delete(ServerContext* context,
+             const dfs_service::DeleteRequest* request,
+             dfs_service::DeleteResponse* resp) override {
+        const std::string path = WrapPath(request->file_name());
+        dfs_log(LL_DEBUG) << "Received Delete: " << path << " from client " << context->peer();
+
+        if (std::remove(path.c_str()) != 0) {
+            return Status(StatusCode::NOT_FOUND, "file not found");
+        }
+
+        if (context->IsCancelled()) {
+            return Status(StatusCode::DEADLINE_EXCEEDED, "deadline");
+        }
+        resp->set_ok(true);
+        resp->set_message("delete ok");
+        return Status::OK;
+    }
+
+    Status List(ServerContext* context,
+             const dfs_service::ListRequest* request,
+             dfs_service::ListResponse* resp) override {
+        const std::string path = WrapPath("");
+        dfs_log(LL_DEBUG) << "Received List from client " << context->peer();
+
+        DIR* dir = opendir(path.c_str());
+        if (dir == nullptr) {
+            return Status(StatusCode::NOT_FOUND, "missing directory");
+        }
+
+        struct dirent* entry;
+        while ((entry = readdir(dir)) != nullptr) {
+            if (entry->d_type == DT_REG) { // regular file
+                std::string filepath = path + entry->d_name;
+                struct stat file_stat;
+                if (stat(filepath.c_str(), &file_stat) == 0) {
+                    resp->mutable_file_info()->insert({entry->d_name, static_cast<int64_t>(file_stat.st_mtime)});
+                }
+            }
+        }
+        closedir(dir);
+        if (context->IsCancelled()) {
+            return Status(StatusCode::DEADLINE_EXCEEDED, "deadline");
+        }
+        return Status::OK;
+    }
+
+
 
 };
 

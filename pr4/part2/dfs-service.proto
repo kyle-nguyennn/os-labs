@@ -7,14 +7,21 @@ service DFSService {
     // Add your service calls here
 
     // 1. REQUIRED (Parts 1 & 2): A method to store files on the server
+    rpc Store (stream FileChunk) returns (StoreResponse);
 
     // 2. REQUIRED (Parts 1 & 2): A method to fetch files from the server
+    rpc Fetch (FetchRequest) returns (stream FileChunk);
 
     // 3. REQUIRED (Parts 1 & 2): A method to list all files on the server
+    rpc List (ListRequest) returns (ListResponse);
 
     // 4. REQUIRED (Parts 1 & 2): A method to get the status of a file on the server
 
-    // 5. REQUIRED (Part 2 only): A method to request a write lock from the server
+    // 5a. REQUIRED (Part 2 only): A method to request a write lock from the server
+    rpc AcquireWriteLock(LockRequest) returns (LockResponse);
+
+    // 5b. REQUIRED (Part 2 only): A method to release a write lock from the server
+    rpc ReleaseWriteLock(LockRequest) returns (LockResponse);
 
     // 6. REQUIRED (Part 2 only): A method named CallbackList to handle asynchronous file listing requests
     //                            from a client. This method should return a listing of files along with their
@@ -22,6 +29,7 @@ service DFSService {
     //                            size, modified time, and creation time.
 
     // 7. REQUIRED (Part 2 only): A method to delete a file from the server
+    rpc Delete (DeleteRequest) returns (DeleteResponse);
 
     // 8. Any other methods you deem necessary to complete the tasks of this assignment
 
@@ -29,4 +37,41 @@ service DFSService {
 }
 
 // Add your message types here
+message FileChunk {
+    string file_name = 1;
+    bytes data = 2;
+}
+
+message StoreResponse {
+    bool ok = 1;
+    string message = 2;
+}
+
+message FetchRequest {
+    string file_name = 1;
+}
+
+message DeleteRequest {
+    string file_name = 1;
+}
+
+message DeleteResponse {
+    bool ok = 1;
+    string message = 2;
+}
+
+message ListRequest {}
+
+message ListResponse {
+    map<string, int64> file_info=1; // filename -> unix epoch millis
+}
+
+message LockRequest {
+    string file_name = 1;
+}
+
+message LockResponse {
+    bool granted = 1;
+    string holder = 2;
+}
 

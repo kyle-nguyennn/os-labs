@@ -68,62 +68,137 @@ grpc::StatusCode DFSClientNodeP2::RequestWriteAccess(const std::string &filename
 
 }
 
-grpc::StatusCode DFSClientNodeP2::Store(const std::string &filename) {
+StatusCode DFSClientNodeP1::Store(const std::string &filename) {
 
     //
     // STUDENT INSTRUCTION:
     //
-    // Add your request to store a file here. Refer to the Part 1
-    // student instruction for details on the basics.
+    // Add your request to store a file here. This method should
+    // connect to your gRPC service implementation method
+    // that can accept and store a file.
     //
-    // You can start with your Part 1 implementation. However, you will
-    // need to adjust this method to recognize when a file trying to be
-    // stored is the same on the server (i.e. the ALREADY_EXISTS gRPC response).
-    //
-    // You will also need to add a request for a write lock before attempting to store.
-    //
-    // If the write lock request fails, you should return a status of RESOURCE_EXHAUSTED
-    // and cancel the current operation.
+    // When working with files in gRPC you'll need to stream
+    // the file contents, so consider the use of gRPC's ClientWriter.
     //
     // The StatusCode response should be:
     //
     // StatusCode::OK - if all went well
     // StatusCode::DEADLINE_EXCEEDED - if the deadline timeout occurs
-    // StatusCode::ALREADY_EXISTS - if the local cached file has not changed from the server version
-    // StatusCode::RESOURCE_EXHAUSTED - if a write lock cannot be obtained
+    // StatusCode::NOT_FOUND - if the file cannot be found on the client
     // StatusCode::CANCELLED otherwise
     //
-    //
 
+    ClientContext context;
+    auto deadline = std::chrono::system_clock::now() +
+               std::chrono::milliseconds(this->deadline_timeout);
+    context.set_deadline(deadline);
+
+    dfs_service::StoreResponse resp;
+
+    std::unique_ptr<ClientWriter<dfs_service::FileChunk>> writer(
+        this->service_stub->Store(&context, &resp));
+    const std::string path = WrapPath(filename);
+    std::ifstream file(path, std::ios::binary | std::ios::in);
+    if (!file) {
+        dfs_log(LL_ERROR) << "Unable to open file: " << path;
+        return StatusCode::CANCELLED;
+    }
+
+    const size_t chunk_size = 64 * 1024; // 64 MB
+    dfs_log(LL_DEBUG) << "Storing: " << path;
+    std::string buffer;
+    buffer.resize(chunk_size);
+    // int64_t offset = 0;
+
+    while (file) {
+        file.read(&buffer[0], chunk_size);
+        std::streamsize bytesRead = file.gcount();
+        dfs_log(LL_DEBUG) << "Streaming " << bytesRead << " bytes from file.";
+        if (bytesRead <= 0) break; // done
+
+        dfs_service::FileChunk chunk;
+        chunk.set_file_name(filename);
+        chunk.set_data(buffer.data(), static_cast<size_t>(bytesRead));
+
+        if (!writer->Write(chunk)){
+            dfs_log(LL_ERROR) << "Server closed stream unexpectedly";
+            break;
+        }
+    }
+    writer->WritesDone();
+    dfs_log(LL_DEBUG) << "Finished sending file data, waiting for server response...";
+    Status rpcStatus = writer->Finish();
+    if (!rpcStatus.ok()) {
+        dfs_log(LL_ERROR) << "Store failed: status=" << rpcStatus.error_code() 
+                                << " message=" << rpcStatus.error_message();
+    } else {
+        dfs_log(LL_DEBUG) << "Store done: status=" << resp.ok() << ". message=" << resp.message();
+    }
+    return rpcStatus.error_code();
 }
 
 
-grpc::StatusCode DFSClientNodeP2::Fetch(const std::string &filename) {
+StatusCode DFSClientNodeP1::Fetch(const std::string &filename) {
 
     //
     // STUDENT INSTRUCTION:
     //
-    // Add your request to fetch a file here. Refer to the Part 1
-    // student instruction for details on the basics.
+    // Add your request to fetch a file here. This method should
+    // connect to your gRPC service implementation method
+    // that can accept a file request and return the contents
+    // of a file from the service.
     //
-    // You can start with your Part 1 implementation. However, you will
-    // need to adjust this method to recognize when a file trying to be
-    // fetched is the same on the client (i.e. the files do not differ
-    // between the client and server and a fetch would be unnecessary.
+    // As with the store function, you'll need to stream the
+    // contents, so consider the use of gRPC's ClientReader.
     //
     // The StatusCode response should be:
     //
-    // OK - if all went well
-    // DEADLINE_EXCEEDED - if the deadline timeout occurs
-    // NOT_FOUND - if the file cannot be found on the server
-    // ALREADY_EXISTS - if the local cached file has not changed from the server version
-    // CANCELLED otherwise
+    // StatusCode::OK - if all went well
+    // StatusCode::DEADLINE_EXCEEDED - if the deadline timeout occurs
+    // StatusCode::NOT_FOUND - if the file cannot be found on the server
+    // StatusCode::CANCELLED otherwise
     //
-    // Hint: You may want to match the mtime on local files to the server's mtime
     //
+    ClientContext context;
+    auto deadline = std::chrono::system_clock::now() +
+               std::chrono::milliseconds(this->deadline_timeout);
+    context.set_deadline(deadline);
+
+    dfs_service::FetchRequest fetchReq;
+    fetchReq.set_file_name(filename);
+
+    std::unique_ptr<grpc::ClientReader<dfs_service::FileChunk>> reader(
+            this->service_stub->Fetch(&context, fetchReq));
+
+    const std::string path = WrapPath(filename);
+    std::ofstream outfile(path, std::ios::binary | std::ios::out);
+    if (!outfile) {
+        std::cerr << "Unable to open output " << path << "\n";
+        return StatusCode::CANCELLED;
+    }
+
+    dfs_service::FileChunk chunk;
+
+    dfs_log(LL_DEBUG) << "Fetch: " << path;
+    size_t total_bytes = 0;
+    while (reader->Read(&chunk)) {
+        outfile.write(chunk.data().data(), chunk.data().size());
+        total_bytes += chunk.data().size();
+        dfs_log(LL_DEBUG) << "Received: " << chunk.data().size() << " bytes. Total: " << total_bytes;
+    }
+    dfs_log(LL_DEBUG) << "Finished receiving file data. Total bytes: " << total_bytes;
+    outfile.close();
+    Status rpcStatus = reader->Finish();
+    if (!rpcStatus.ok()) {
+        dfs_log(LL_ERROR) << "Fetch failed: " << "status=" << rpcStatus.error_code() 
+                                << " message=" << rpcStatus.error_message();
+    } else {
+        dfs_log(LL_DEBUG) << "Fetch done: " << rpcStatus.error_code();
+    }
+    return rpcStatus.error_code();
 }
 
-grpc::StatusCode DFSClientNodeP2::Delete(const std::string &filename) {
+StatusCode DFSClientNodeP1::Delete(const std::string& filename) {
 
     //
     // STUDENT INSTRUCTION:
@@ -131,32 +206,41 @@ grpc::StatusCode DFSClientNodeP2::Delete(const std::string &filename) {
     // Add your request to delete a file here. Refer to the Part 1
     // student instruction for details on the basics.
     //
-    // You will also need to add a request for a write lock before attempting to delete.
-    //
-    // If the write lock request fails, you should return a status of RESOURCE_EXHAUSTED
-    // and cancel the current operation.
-    //
     // The StatusCode response should be:
     //
     // StatusCode::OK - if all went well
     // StatusCode::DEADLINE_EXCEEDED - if the deadline timeout occurs
-    // StatusCode::RESOURCE_EXHAUSTED - if a write lock cannot be obtained
+    // StatusCode::NOT_FOUND - if the file cannot be found on the server
     // StatusCode::CANCELLED otherwise
     //
-    //
 
+    ClientContext context;
+    auto deadline = std::chrono::system_clock::now() +
+               std::chrono::milliseconds(this->deadline_timeout);
+    context.set_deadline(deadline);
+
+    dfs_service::DeleteRequest deleteReq;
+    deleteReq.set_file_name(filename);
+    dfs_service::DeleteResponse resp;
+    dfs_log(LL_DEBUG) << "Delete: " << filename;
+    Status rpc_status = this->service_stub->Delete(&context, deleteReq, &resp);
+    dfs_log(LL_DEBUG) << "Delete Response status: " << resp.message();
+    return rpc_status.error_code();
 }
 
-grpc::StatusCode DFSClientNodeP2::List(std::map<std::string,int>* file_map, bool display) {
+StatusCode DFSClientNodeP1::List(std::map<std::string,int>* file_map, bool display) {
 
     //
     // STUDENT INSTRUCTION:
     //
-    // Add your request to list files here. Refer to the Part 1
-    // student instruction for details on the basics.
+    // Add your request to list all files here. This method
+    // should connect to your service's list method and return
+    // a list of files using the message type you created.
     //
-    // You can start with your Part 1 implementation and add any additional
-    // listing details that would be useful to your solution to the list response.
+    // The file_map parameter is a simple map of files. You should fill
+    // the file_map with the list of files you receive with keys as the
+    // file name and values as the modified time (mtime) of the file
+    // received from the server.
     //
     // The StatusCode response should be:
     //
@@ -164,7 +248,25 @@ grpc::StatusCode DFSClientNodeP2::List(std::map<std::string,int>* file_map, bool
     // StatusCode::DEADLINE_EXCEEDED - if the deadline timeout occurs
     // StatusCode::CANCELLED otherwise
     //
-    //
+    
+    ClientContext context;
+    auto deadline = std::chrono::system_clock::now() +
+               std::chrono::milliseconds(this->deadline_timeout);
+    context.set_deadline(deadline);
+
+    dfs_service::ListRequest listReq;
+
+    dfs_service::ListResponse resp;
+
+    dfs_log(LL_DEBUG) << "List: ";
+    Status rpc_status = this->service_stub->List(&context, listReq, &resp);
+    dfs_log(LL_DEBUG) << "List Response status: " << rpc_status.error_message();
+    dfs_log(LL_DEBUG) << "List Response file_info len: " << resp.file_info().size();
+    for (auto& entry: resp.file_info()) {
+        (*file_map)[entry.first] = static_cast<int>(entry.second);
+        dfs_log(LL_DEBUG) << "File map entry: " << entry.first << " -> " << entry.second;
+    }
+    return rpc_status.error_code();
 }
 
 grpc::StatusCode DFSClientNodeP2::Stat(const std::string &filename, void* file_status) {
