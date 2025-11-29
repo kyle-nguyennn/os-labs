@@ -2,7 +2,6 @@
 #include <deque>
 #include <map>
 #include <mutex>
-#include <shared_mutex>
 #include <chrono>
 #include <cstdio>
 #include <string>
@@ -92,7 +91,7 @@ private:
     bool fs_changed = false;
 
     // Write lock management
-    std::shared_mutex write_lock_mutex;
+    std::mutex write_lock_mutex;
     std::map<std::string, std::string> write_locks; // filename -> client_id
 
     /**
@@ -251,7 +250,7 @@ public:
     //
 
     bool access_granted(const std::string &filename, const std::string &client_id) {
-        std::shared_lock<std::shared_mutex> lock(this->write_lock_mutex);
+        std::lock_guard<std::mutex> lock(this->write_lock_mutex);
         auto it = this->write_locks.find(filename);
         return (it != this->write_locks.end() && it->second == client_id);
     }
@@ -265,7 +264,7 @@ public:
 
         dfs_log(LL_DEBUG) << "Received AcquireWriteLock for file: " << filename << " from client: " << client_id;
 
-        std::unique_lock<std::shared_mutex> lock(this->write_lock_mutex);
+        std::lock_guard<std::mutex> lock(this->write_lock_mutex);
         auto it = this->write_locks.find(filename);
         if (it == this->write_locks.end()) {
             // lock is available
@@ -295,7 +294,7 @@ public:
 
         dfs_log(LL_DEBUG) << "Received ReleaseWriteLock for file: " << filename << " from client: " << client_id;
 
-        std::unique_lock<std::shared_mutex> lock(this->write_lock_mutex);
+        std::unique_lock<std::mutex> lock(this->write_lock_mutex);
         auto it = this->write_locks.find(filename);
         if (it != this->write_locks.end() && it->second == client_id) {
             this->write_locks.erase(it);

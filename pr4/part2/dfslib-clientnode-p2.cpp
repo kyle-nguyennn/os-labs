@@ -490,7 +490,8 @@ void DFSClientNodeP2::HandleCallbackList() {
                     local_file_map
                 );
                 lock.unlock();
-
+                
+                dfs_log(LL_DEBUG) << "Number of items to reconcile: " << reconcile_map.size();
                 // Issue command based on reconciliation
                 for (const auto& entry : reconcile_map) {
                     const std::string& filename = entry.first;
@@ -521,7 +522,7 @@ void DFSClientNodeP2::HandleCallbackList() {
                         }
                     } else {
                         // File is in sync, do nothing
-                        dfs_log(LL_DEBUG3) << "File is in sync, no action needed: " << filename;
+                        dfs_log(LL_DEBUG) << "File is in sync, no action needed: " << filename;
                     }
                 }
             } else {
