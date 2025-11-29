@@ -56,6 +56,21 @@ struct EventStruct {
 // Add any additional shared code here
 //
 
+struct dfs_file_info_t {
+    std::string file_name;
+    int mtime;
+    uint32_t crc;
+};
+
+std::map<std::string, dfs_file_info_t> get_local_file_map(
+    const std::string& mount_path, CRC::Table<std::uint32_t, 32>* crc_table
+);
+
+std::map<std::string, dfs_file_info_t> dfs_reconcile_file_lists(
+    const std::map<std::string,dfs_file_info_t>& server_file_map,
+    const std::map<std::string,dfs_file_info_t>& local_file_map
+);
+
 
 #endif
 

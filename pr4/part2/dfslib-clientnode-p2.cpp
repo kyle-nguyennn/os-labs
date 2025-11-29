@@ -78,7 +78,13 @@ grpc::StatusCode DFSClientNodeP2::RequestWriteAccess(const std::string &filename
     Status rpc_status = this->service_stub->AcquireWriteLock(&context, lockReq, &resp);
     dfs_log(LL_DEBUG) << "Acquire Lock Response status: " << rpc_status.error_message();
     dfs_log(LL_DEBUG) << "Acquire Lock Response: granted=" << resp.granted() << " holder=" << resp.holder();
-    return rpc_status.error_code();
+    if (resp.granted()) {
+        // lock acquired - rpc_status should be OK too
+        // but writing this is more explicit
+        return StatusCode::OK;
+    } else {
+        return rpc_status.error_code();
+    }
 
 }
 
@@ -120,11 +126,18 @@ StatusCode DFSClientNodeP2::Store(const std::string &filename) {
     // StatusCode::CANCELLED otherwise
     //
 
+    // Acquiring local lock before performing DF mutation operations
+    std::lock_guard<std::mutex> lock(this->sync_mutex);
+
     StatusCode writeLockStatusCode = this->RequestWriteAccess(filename);
-    if (!writeLockStatusCode != StatusCode::OK) {
+    if (writeLockStatusCode != StatusCode::OK) {
         dfs_log(LL_DEBUG) << "Lock not acquired. statusCode=" << writeLockStatusCode;
         return StatusCode::CANCELLED;
+    } else {
+        dfs_log(LL_DEBUG) << "Write lock acquired for file: " << filename;
     }
+    const std::string path = WrapPath(filename);
+    dfs_log(LL_DEBUG) << "Storing: " << path;
 
     ClientContext context;
     auto deadline = std::chrono::system_clock::now() +
@@ -132,10 +145,8 @@ StatusCode DFSClientNodeP2::Store(const std::string &filename) {
     context.set_deadline(deadline);
 
     dfs_service::StoreResponse resp;
-
     std::unique_ptr<ClientWriter<dfs_service::FileChunk>> writer(
         this->service_stub->Store(&context, &resp));
-    const std::string path = WrapPath(filename);
     std::ifstream file(path, std::ios::binary | std::ios::in);
     if (!file) {
         dfs_log(LL_ERROR) << "Unable to open file: " << path;
@@ -143,7 +154,6 @@ StatusCode DFSClientNodeP2::Store(const std::string &filename) {
     }
 
     const size_t chunk_size = 64 * 1024; // 64 MB
-    dfs_log(LL_DEBUG) << "Storing: " << path;
     std::string buffer;
     buffer.resize(chunk_size);
     // int64_t offset = 0;
@@ -173,6 +183,15 @@ StatusCode DFSClientNodeP2::Store(const std::string &filename) {
         dfs_log(LL_DEBUG) << "Store done: status=" << resp.ok() << ". message=" << resp.message();
     }
 
+    // Release the write lock after storing
+    grpc::StatusCode releaseStatusCode = this->ReleaseWriteAccess(filename);
+    if (releaseStatusCode != StatusCode::OK) {
+        dfs_log(LL_ERROR) << "Failed to release write lock for file: " << filename 
+                            << " statusCode=" << releaseStatusCode;
+    } else {
+        dfs_log(LL_DEBUG) << "Released write lock for file: " << filename;
+    }
+
     return rpcStatus.error_code();
 }
 
@@ -197,7 +216,10 @@ StatusCode DFSClientNodeP2::Fetch(const std::string &filename) {
     // StatusCode::NOT_FOUND - if the file cannot be found on the server
     // StatusCode::CANCELLED otherwise
     //
-    //
+
+    // Acquiring local lock before performing DF mutation operations
+    std::lock_guard<std::mutex> lock(this->sync_mutex);
+
     ClientContext context;
     auto deadline = std::chrono::system_clock::now() +
                std::chrono::milliseconds(this->deadline_timeout);
@@ -253,6 +275,19 @@ StatusCode DFSClientNodeP2::Delete(const std::string& filename) {
     // StatusCode::CANCELLED otherwise
     //
 
+    // Acquiring local lock before performing DF mutation operations
+    std::lock_guard<std::mutex> lock(this->sync_mutex);
+
+    StatusCode writeLockStatusCode = this->RequestWriteAccess(filename);
+    if (writeLockStatusCode != StatusCode::OK) {
+        dfs_log(LL_DEBUG) << "Lock not acquired. statusCode=" << writeLockStatusCode;
+        return StatusCode::CANCELLED;
+    } else {
+        dfs_log(LL_DEBUG) << "Write lock acquired for file: " << filename;
+    }
+    const std::string path = WrapPath(filename);
+    dfs_log(LL_DEBUG) << "Deleting: " << path;
+
     ClientContext context;
     auto deadline = std::chrono::system_clock::now() +
                std::chrono::milliseconds(this->deadline_timeout);
@@ -264,6 +299,17 @@ StatusCode DFSClientNodeP2::Delete(const std::string& filename) {
     dfs_log(LL_DEBUG) << "Delete: " << filename;
     Status rpc_status = this->service_stub->Delete(&context, deleteReq, &resp);
     dfs_log(LL_DEBUG) << "Delete Response status: " << resp.message();
+
+
+    // Release the write lock after deleting
+    grpc::StatusCode releaseStatusCode = this->ReleaseWriteAccess(filename);
+    if (releaseStatusCode != StatusCode::OK) {
+        dfs_log(LL_ERROR) << "Failed to release write lock for file: " << filename 
+                            << " statusCode=" << releaseStatusCode;
+    } else {
+        dfs_log(LL_DEBUG) << "Released write lock for file: " << filename;
+    }
+
     return rpc_status.error_code();
 }
 
@@ -351,7 +397,9 @@ void DFSClientNodeP2::InotifyWatcherCallback(std::function<void()> callback) {
     // the async thread when a file event has been signaled?
     //
 
-
+    // Acquiring local lock before performing DF mutation operations
+    // std::lock_guard<std::mutex> lock(this->sync_mutex);
+    // Core calback logic (check file status, store to server, etc) already handled in dfs-client-p2.cpp
     callback();
 
 }
@@ -423,9 +471,59 @@ void DFSClientNodeP2::HandleCallbackList() {
                 // Send an update to the server?
                 // Do nothing?
                 //
+                
+                // Reconcile the file list from the server with the local file system
+                std::map<std::string,dfs_file_info_t> server_file_map;
+                for (const auto& file_info : call_data->reply.files()) {
+                    dfs_file_info_t info;
+                    info.file_name = file_info.file_name();
+                    info.mtime = file_info.mtime();
+                    info.crc = file_info.crc();
+                    server_file_map[info.file_name] = info;
+                }
+                // Lock the state before getting local file map and reconciling
+                std::unique_lock<std::mutex> lock(this->sync_mutex);
+                std::map<std::string,dfs_file_info_t> local_file_map = get_local_file_map(this->mount_path, &this->crc_table);
 
+                std::map<std::string,dfs_file_info_t> reconcile_map = dfs_reconcile_file_lists(
+                    server_file_map,
+                    local_file_map
+                );
+                lock.unlock();
 
+                // Issue command based on reconciliation
+                for (const auto& entry : reconcile_map) {
+                    const std::string& filename = entry.first;
+                    const dfs_file_info_t& info = entry.second;
+                    const dfs_file_info_t& server_info = server_file_map[filename];
 
+                    if (info.mtime > server_info.mtime) {
+                        // Local file is newer, store to server
+                        dfs_log(LL_DEBUG) << "Local file is newer, storing to server: " << filename;
+                        StatusCode status = this->Store(filename);
+                        if (status != StatusCode::OK) {
+                            dfs_log(LL_ERROR) << "Failed to store file to server: " << filename;
+                        }
+                    } else if (info.mtime < server_info.mtime) {
+                        // Server file is newer, fetch from server
+                        dfs_log(LL_DEBUG) << "Server file is newer, fetching from server: " << filename;
+                        StatusCode status = this->Fetch(filename);
+                        if (status != StatusCode::OK) {
+                            dfs_log(LL_ERROR) << "Failed to fetch file from server: " << filename;
+                        }
+                    } else if (info.crc != server_info.crc) {
+                        // File contents differ, but mtimes are the same
+                        // Decide on a policy; here we choose to fetch from server as source of truth
+                        dfs_log(LL_DEBUG) << "File contents differ, fetching from server: " << filename;
+                        StatusCode status = this->Fetch(filename);
+                        if (status != StatusCode::OK) {
+                            dfs_log(LL_ERROR) << "Failed to fetch file from server: " << filename;
+                        }
+                    } else {
+                        // File is in sync, do nothing
+                        dfs_log(LL_DEBUG3) << "File is in sync, no action needed: " << filename;
+                    }
+                }
             } else {
                 dfs_log(LL_ERROR) << "Status was not ok. Will try again in " << DFS_RESET_TIMEOUT << " milliseconds.";
                 dfs_log(LL_ERROR) << call_data->status.error_message();
@@ -459,6 +557,7 @@ void DFSClientNodeP2::HandleCallbackList() {
  * give you a chance to focus more on the project's requirements.
  */
 void DFSClientNodeP2::InitCallbackList() {
+    dfs_log(LL_DEBUG) << "Send CallbackList";
     CallbackList<FileRequestType, FileListResponseType>();
 }
 

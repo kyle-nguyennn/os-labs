@@ -1,3 +1,5 @@
+#include <condition_variable>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <shared_mutex>
@@ -84,6 +86,10 @@ private:
     /** The vector of queued tags used to manage asynchronous requests **/
     std::vector<QueueRequest<FileRequestType, FileListResponseType>> queued_tags;
 
+    // notification queue for file system changes
+    std::condition_variable fs_change_cv;
+    std::mutex fs_change_mutex;
+    bool fs_changed = false;
 
     /**
      * Prepend the mount path to the filename.
@@ -167,7 +173,30 @@ public:
         // The client should receive a list of files or modifications that represent the changes this service
         // is aware of. The client will then need to make the appropriate calls based on those changes.
         //
+        std::unique_lock<std::mutex> lock(this->fs_change_mutex);
+        this->fs_change_cv.wait(lock, [&]{ return this->fs_changed;});
+        this->fs_changed = false;
+        lock.unlock();
 
+        // Build CallbackListResponse
+        DIR* dir = opendir(mount_path.c_str());
+        if (!dir) return;
+
+        struct dirent* entry;
+        while ((entry = readdir(dir)) != nullptr) {
+            if (entry->d_type != DT_REG) continue; // ignore non-regular files, i.e, directories, symlinks, sockets
+            std::string abs_path = mount_path + entry->d_name;
+
+            struct stat st{};
+            if (stat(abs_path.c_str(), &st) != 0) continue;
+
+            auto* file_info = response->add_files();
+            file_info->set_file_name(entry->d_name);
+            file_info->set_mtime(static_cast<int64_t>(st.st_mtime));
+            file_info->set_crc(dfs_file_checksum(abs_path, &crc_table));
+            file_info->set_deleted(false);
+        }
+        closedir(dir);
     }
 
     /**
@@ -257,6 +286,14 @@ public:
         }
         resp->set_ok(true);
         resp->set_message("store ok");
+
+        // Notify file system change
+        {
+            std::lock_guard<std::mutex> lock(this->fs_change_mutex);
+            this->fs_changed = true;
+        }
+        this->fs_change_cv.notify_all();
+        
         return Status::OK;
     }
 
@@ -321,6 +358,14 @@ public:
         }
         resp->set_ok(true);
         resp->set_message("delete ok");
+
+        // Notify file system change
+        {
+            std::lock_guard<std::mutex> lock(this->fs_change_mutex);
+            this->fs_changed = true;
+        }
+        this->fs_change_cv.notify_all();
+
         return Status::OK;
     }
 
