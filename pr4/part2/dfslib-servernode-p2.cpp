@@ -1,4 +1,5 @@
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <grpcpp/impl/codegen/status_code_enum.h>
 #include <map>
@@ -406,6 +407,20 @@ public:
         }
         const off_t file_size = st.st_size;
         dfs_log(LL_DEBUG) << "File size: " << file_size;
+
+        // Check crc and mtime to avoid unnecessary transfers
+        uint32_t server_crc = dfs_file_checksum(path, &this->crc_table);
+        if (request->crc() == server_crc) {
+            dfs_log(LL_DEBUG) << "Client file crc matches server file crc. Skipping transfer for file: " << request->file_name();
+            return Status(StatusCode::ALREADY_EXISTS, "file unchanged");
+        }
+        if (request->mtime() != 0) {
+            int64_t server_mtime = st.st_mtime;
+            if (server_mtime <= request->mtime()) {
+                dfs_log(LL_DEBUG) << "Client file mtime is newer than server file mtime. Skipping transfer for file: " << request->file_name();
+                return Status(StatusCode::ALREADY_EXISTS, "file unchanged");
+            }
+        }
 
         size_t bytesSent = 0;
         dfs_service::FileChunk chunk;

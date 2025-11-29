@@ -54,6 +54,8 @@ message StoreResponse {
 message FetchRequest {
     string client_id = 1;
     string file_name = 2;
+    uint32 crc = 4;
+    int64 mtime = 5;
 }
 
 message DeleteRequest {

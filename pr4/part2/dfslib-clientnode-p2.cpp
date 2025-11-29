@@ -1,5 +1,6 @@
 #include <regex>
 #include <mutex>
+#include <sys/stat.h>
 #include <vector>
 #include <string>
 #include <thread>
@@ -233,38 +234,56 @@ StatusCode DFSClientNodeP2::Fetch(const std::string &filename) {
                std::chrono::milliseconds(this->deadline_timeout);
     context.set_deadline(deadline);
 
+    const std::string path = WrapPath(filename);
+    struct stat st{};
     dfs_service::FetchRequest fetchReq;
+
     fetchReq.set_client_id(this->client_id);
     fetchReq.set_file_name(filename);
+    if (stat(path.c_str(), &st) == 0) { // stat returns no error -> file exists
+        dfs_log(LL_DEBUG) << "Local file exists. " << path << ". Attempt to overwrite with file from server.";
+        fetchReq.set_crc(dfs_file_checksum(path, &this->crc_table));
+        fetchReq.set_mtime(get_file_mtime(WrapPath(filename)));
+    }
 
     std::unique_ptr<grpc::ClientReader<dfs_service::FileChunk>> reader(
             this->service_stub->Fetch(&context, fetchReq));
 
-    const std::string path = WrapPath(filename);
-    std::ofstream outfile(path, std::ios::binary | std::ios::out);
-    if (!outfile) {
-        std::cerr << "Unable to open output " << path << "\n";
-        return StatusCode::CANCELLED;
-    }
-
+    std::ofstream outfile;
+    bool file_opened = false;
+    std::string tmp_path = path + ".tmp";
     dfs_service::FileChunk chunk;
+    size_t total_bytes = 0;
 
     dfs_log(LL_DEBUG) << "Fetch: " << path;
-    size_t total_bytes = 0;
+
     while (reader->Read(&chunk)) {
+        if (!file_opened) {
+            outfile.open(tmp_path, std::ios::binary | std::ios::out | std::ios::trunc);
+            if (!outfile) {
+                dfs_log(LL_ERROR) << "Unable to open output " << tmp_path;
+                reader->Finish();
+                return StatusCode::CANCELLED;
+            }
+            file_opened = true;
+        }
         outfile.write(chunk.data().data(), chunk.data().size());
         total_bytes += chunk.data().size();
         dfs_log(LL_DEBUG) << "Received: " << chunk.data().size() << " bytes. Total: " << total_bytes;
     }
     dfs_log(LL_DEBUG) << "Finished receiving file data. Total bytes: " << total_bytes;
-    outfile.close();
-    Status rpcStatus = reader->Finish();
-    if (!rpcStatus.ok()) {
-        dfs_log(LL_ERROR) << "Fetch failed: " << "status=" << rpcStatus.error_code() 
-                                << " message=" << rpcStatus.error_message();
-    } else {
-        dfs_log(LL_DEBUG) << "Fetch done: " << rpcStatus.error_code();
+    if (file_opened) {
+        outfile.close();
+        if (total_bytes > 0) {
+            std::rename(tmp_path.c_str(), path.c_str());
+        } else {
+            std::remove(tmp_path.c_str());
+        }
     }
+
+    Status rpcStatus = reader->Finish();
+    dfs_log(LL_DEBUG) << "Fetch done: " << "status=" << rpcStatus.error_code() 
+                                << " message=" << rpcStatus.error_message();
     return rpcStatus.error_code();
 }
 
