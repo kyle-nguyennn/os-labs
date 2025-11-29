@@ -515,7 +515,7 @@ void DFSClientNodeP2::HandleCallbackList() {
                 std::unique_lock<std::mutex> lock(this->sync_mutex);
                 std::map<std::string,dfs_file_info_t> local_file_map = get_local_file_map(this->mount_path, &this->crc_table);
 
-                std::map<std::string,dfs_file_info_t> reconcile_map = dfs_reconcile_file_lists(
+                std::map<std::string,short> reconcile_map = dfs_reconcile_file_lists(
                     server_file_map,
                     local_file_map
                 );
@@ -525,24 +525,45 @@ void DFSClientNodeP2::HandleCallbackList() {
                 // Issue command based on reconciliation
                 for (const auto& entry : reconcile_map) {
                     const std::string& filename = entry.first;
-                    const dfs_file_info_t& info = entry.second;
-                    const dfs_file_info_t& server_info = server_file_map[filename];
+                    short status_flag = entry.second;
 
-                    if (info.mtime > server_info.mtime) {
+                    if (status_flag == 1) { // Right only - local
+                        // File exists locally but not on server, store to server
+                        dfs_log(LL_DEBUG) << "File missing on server, storing: " << filename;
+                        StatusCode status = this->Store(filename);
+                        if (status != StatusCode::OK) {
+                            dfs_log(LL_ERROR) << "Failed to store file to server: " << filename;
+                        }
+                        continue;
+                    } else if (status_flag == -1) { // Left only - server
+                        // File exists on server but not locally, fetch from server
+                        dfs_log(LL_DEBUG) << "File missing locally, fetching: " << filename;
+                        StatusCode status = this->Fetch(filename);
+                        if (status != StatusCode::OK) {
+                            dfs_log(LL_ERROR) << "Failed to fetch file from server: " << filename;
+                        }
+                        continue;
+                    }
+                    
+                    // For file existing on both sides, compare mtime and crc
+                    const dfs_file_info_t& server_info = server_file_map[filename];
+                    const dfs_file_info_t& local_info = local_file_map[filename];
+
+                    if (local_info.mtime > server_info.mtime) {
                         // Local file is newer, store to server
                         dfs_log(LL_DEBUG) << "Local file is newer, storing to server: " << filename;
                         StatusCode status = this->Store(filename);
                         if (status != StatusCode::OK) {
                             dfs_log(LL_ERROR) << "Failed to store file to server: " << filename;
                         }
-                    } else if (info.mtime < server_info.mtime) {
+                    } else if (local_info.mtime < server_info.mtime) {
                         // Server file is newer, fetch from server
                         dfs_log(LL_DEBUG) << "Server file is newer, fetching from server: " << filename;
                         StatusCode status = this->Fetch(filename);
                         if (status != StatusCode::OK) {
                             dfs_log(LL_ERROR) << "Failed to fetch file from server: " << filename;
                         }
-                    } else if (info.crc != server_info.crc) {
+                    } else if (local_info.crc != server_info.crc) {
                         // File contents differ, but mtimes are the same
                         // Decide on a policy; here we choose to fetch from server as source of truth
                         dfs_log(LL_DEBUG) << "File contents differ, fetching from server: " << filename;

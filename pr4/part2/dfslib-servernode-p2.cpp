@@ -225,7 +225,6 @@ public:
 
             // Guarded section for queue
             {
-                dfs_log(LL_DEBUG2) << "Waiting for queue guard";
                 std::lock_guard<std::mutex> lock(queue_mutex);
 
 

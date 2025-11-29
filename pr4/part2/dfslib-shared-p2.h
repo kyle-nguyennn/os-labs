@@ -66,9 +66,9 @@ std::map<std::string, dfs_file_info_t> get_local_file_map(
     const std::string& mount_path, CRC::Table<std::uint32_t, 32>* crc_table
 );
 
-std::map<std::string, dfs_file_info_t> dfs_reconcile_file_lists(
-    const std::map<std::string,dfs_file_info_t>& server_file_map,
-    const std::map<std::string,dfs_file_info_t>& local_file_map
+std::map<std::string, short> dfs_reconcile_file_lists(
+    const std::map<std::string,dfs_file_info_t>& left,
+    const std::map<std::string,dfs_file_info_t>& right
 );
 
 int64_t get_file_mtime(const std::string& filepath);

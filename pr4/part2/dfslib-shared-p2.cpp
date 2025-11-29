@@ -56,36 +56,31 @@ std::map<std::string, dfs_file_info_t> get_local_file_map(
     return local_file_map;
 }
 
-std::map<std::string, dfs_file_info_t> dfs_reconcile_file_lists(
-    const std::map<std::string,dfs_file_info_t>& server_file_map,
-    const std::map<std::string,dfs_file_info_t>& local_file_map
+std::map<std::string, short> dfs_reconcile_file_lists(
+    const std::map<std::string,dfs_file_info_t>& left,
+    const std::map<std::string,dfs_file_info_t>& right
 ) {
-    std::map<std::string, dfs_file_info_t> reconcile_map;
+    std::map<std::string, short> reconcile_map;
 
     // Check for files in local map
-    for (const auto& entry : local_file_map) {
+    for (const auto& entry : left) {
         const std::string& filename = entry.first;
-        const dfs_file_info_t& local_info = entry.second;
 
-        auto server_it = server_file_map.find(filename);
-        if (server_it == server_file_map.end()) {
-            // File exists locally but not on server
-            reconcile_map[filename] = local_info;
+        auto server_it = right.find(filename);
+        if (server_it == right.end()) {
+            // File exists on left but not on right
+            reconcile_map[filename] = -1;
         } else {
-            const dfs_file_info_t& server_info = server_it->second;
-            if (local_info.mtime != server_info.mtime || local_info.crc != server_info.crc) {
-                // File exists on both but differs
-                reconcile_map[filename] = local_info;
-            }
+            reconcile_map[filename] = 0; // exists on both
         }
     }
 
     // Check for files in server map that are missing locally
-    for (const auto& entry : server_file_map) {
+    for (const auto& entry : right) {
         const std::string& filename = entry.first;
-        if (local_file_map.find(filename) == local_file_map.end()) {
-            // File exists on server but not locally
-            reconcile_map[filename] = entry.second;
+        if (left.find(filename) == left.end()) {
+            // File exists on right but not on left
+            reconcile_map[filename] = 1;
         }
     }
 
