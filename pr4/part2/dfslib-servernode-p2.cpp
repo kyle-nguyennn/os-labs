@@ -259,8 +259,7 @@ public:
              const dfs_service::LockRequest* request,
              dfs_service::LockResponse* resp) override {
         const std::string filename = request->file_name();
-        // const std::string client_id = request->client_id();
-        const std::string client_id = context->peer();
+        const std::string client_id = request->client_id();
 
         dfs_log(LL_DEBUG) << "Received AcquireWriteLock for file: " << filename << " from client: " << client_id;
 
@@ -289,12 +288,11 @@ public:
              const dfs_service::LockRequest* request,
              dfs_service::LockResponse* resp) override {
         const std::string filename = request->file_name();
-        // const std::string client_id = request->client_id();
-        const std::string client_id = context->peer();
+        const std::string client_id = request->client_id();
 
         dfs_log(LL_DEBUG) << "Received ReleaseWriteLock for file: " << filename << " from client: " << client_id;
 
-        std::unique_lock<std::mutex> lock(this->write_lock_mutex);
+        std::lock_guard<std::mutex> lock(this->write_lock_mutex);
         auto it = this->write_locks.find(filename);
         if (it != this->write_locks.end() && it->second == client_id) {
             this->write_locks.erase(it);
@@ -316,22 +314,25 @@ public:
     Status Store(ServerContext* context,
              ServerReader<dfs_service::FileChunk>* reader,
              dfs_service::StoreResponse* resp) override {
+                
         dfs_service::FileChunk chunk;
         std::ofstream outfile;
         std::string filename;
+        std::string client_id;
 
-        dfs_log(LL_DEBUG) << "Received Store from client " << context->peer();
 
         
         std::string path;
         size_t bytesReceived = 0;
         // Read the first chunk to get the filename
         if (reader->Read(&chunk)) {
+            client_id = chunk.client_id();
             filename = chunk.file_name();
+            dfs_log(LL_DEBUG) << "Received Store from client " << client_id << " for file " << filename;
             // Check permission to write
-            if (!access_granted(filename, context->peer())) {
-                dfs_log(LL_ERROR) << "Write lock not held by client " << context->peer() << " for file " << filename;
-                return Status(StatusCode::PERMISSION_DENIED, "write lock not held by client");
+            if (!access_granted(filename, client_id)) {
+                dfs_log(LL_ERROR) << "Write lock not held by client " << client_id << " for file " << filename;
+                return Status(StatusCode::RESOURCE_EXHAUSTED, "write lock not held by client");
             }
 
             path = WrapPath(filename);
@@ -377,7 +378,7 @@ public:
         const std::string path = WrapPath(request->file_name());
         std::ifstream file(path, std::ios::binary);
         
-        dfs_log(LL_DEBUG) << "Received Fetch: " << path << " from client " << context->peer();
+        dfs_log(LL_DEBUG) << "Received Fetch: " << path << " from client " << request->client_id();
         if (!file.is_open()) {
             return Status(StatusCode::NOT_FOUND, "missing file");
         }
@@ -419,12 +420,14 @@ public:
     Status Delete(ServerContext* context,
              const dfs_service::DeleteRequest* request,
              dfs_service::DeleteResponse* resp) override {
+
+        std::string client_id = request->client_id();
         const std::string path = WrapPath(request->file_name());
-        dfs_log(LL_DEBUG) << "Received Delete: " << path << " from client " << context->peer();
+        dfs_log(LL_DEBUG) << "Received Delete: " << path << " from client " << client_id;
         
-        if (!access_granted(request->file_name(), context->peer())) {
-            dfs_log(LL_ERROR) << "Write lock not held by client " << context->peer() << " for file " << request->file_name();
-            return Status(StatusCode::PERMISSION_DENIED, "write lock not held by client");
+        if (!access_granted(request->file_name(), client_id)) {
+            dfs_log(LL_ERROR) << "Write lock not held by client " << client_id << " for file " << request->file_name();
+            return Status(StatusCode::RESOURCE_EXHAUSTED, "write lock not held by client");
         }
 
         if (std::remove(path.c_str()) != 0) {
@@ -451,7 +454,7 @@ public:
              const dfs_service::ListRequest* request,
              dfs_service::ListResponse* resp) override {
         const std::string path = WrapPath("");
-        dfs_log(LL_DEBUG) << "Received List from client " << context->peer();
+        dfs_log(LL_DEBUG) << "Received List from client " << request->client_id();
 
         DIR* dir = opendir(path.c_str());
         if (dir == nullptr) {

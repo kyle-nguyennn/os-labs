@@ -165,6 +165,7 @@ StatusCode DFSClientNodeP2::Store(const std::string &filename) {
         if (bytesRead <= 0) break; // done
 
         dfs_service::FileChunk chunk;
+        chunk.set_client_id(this->client_id);
         chunk.set_file_name(filename);
         chunk.set_data(buffer.data(), static_cast<size_t>(bytesRead));
 
@@ -226,6 +227,7 @@ StatusCode DFSClientNodeP2::Fetch(const std::string &filename) {
     context.set_deadline(deadline);
 
     dfs_service::FetchRequest fetchReq;
+    fetchReq.set_client_id(this->client_id);
     fetchReq.set_file_name(filename);
 
     std::unique_ptr<grpc::ClientReader<dfs_service::FileChunk>> reader(
@@ -294,6 +296,7 @@ StatusCode DFSClientNodeP2::Delete(const std::string& filename) {
     context.set_deadline(deadline);
 
     dfs_service::DeleteRequest deleteReq;
+    deleteReq.set_client_id(this->client_id);
     deleteReq.set_file_name(filename);
     dfs_service::DeleteResponse resp;
     dfs_log(LL_DEBUG) << "Delete: " << filename;
@@ -340,6 +343,7 @@ StatusCode DFSClientNodeP2::List(std::map<std::string,int>* file_map, bool displ
     context.set_deadline(deadline);
 
     dfs_service::ListRequest listReq;
+    listReq.set_client_id(this->client_id);
 
     dfs_service::ListResponse resp;
 

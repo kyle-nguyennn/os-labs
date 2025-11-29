@@ -39,8 +39,9 @@ service DFSService {
 
 // Add your message types here
 message FileChunk {
-    string file_name = 1;
-    bytes data = 2;
+    string client_id = 1;
+    string file_name = 2;
+    bytes data = 3;
 }
 
 message StoreResponse {
@@ -49,11 +50,13 @@ message StoreResponse {
 }
 
 message FetchRequest {
-    string file_name = 1;
+    string client_id = 1;
+    string file_name = 2;
 }
 
 message DeleteRequest {
-    string file_name = 1;
+    string client_id = 1;
+    string file_name = 2;
 }
 
 message DeleteResponse {
@@ -61,15 +64,17 @@ message DeleteResponse {
     string message = 2;
 }
 
-message ListRequest {}
+message ListRequest {
+    string client_id = 1;
+}
 
 message ListResponse {
     map<string, int64> file_info=1; // filename -> unix epoch millis
 }
 
 message LockRequest {
-    string file_name = 1;
-    string client_id = 2;
+    string client_id = 1;
+    string file_name = 2;
 }
 
 message LockResponse {
