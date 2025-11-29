@@ -71,6 +71,8 @@ std::map<std::string, dfs_file_info_t> dfs_reconcile_file_lists(
     const std::map<std::string,dfs_file_info_t>& local_file_map
 );
 
+int64_t get_file_mtime(const std::string& filepath);
+
 
 #endif
 

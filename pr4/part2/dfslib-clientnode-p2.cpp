@@ -100,10 +100,9 @@ grpc::StatusCode DFSClientNodeP2::ReleaseWriteAccess(const std::string &filename
     dfs_service::LockResponse resp;
     dfs_log(LL_DEBUG) << "Release Lock for file : " << filename;
     Status rpc_status = this->service_stub->ReleaseWriteLock(&context, lockReq, &resp);
-    dfs_log(LL_DEBUG) << "Acquire Lock Response status: " << rpc_status.error_message();
-    dfs_log(LL_DEBUG) << "Acquire Lock Response: granted=" << resp.granted() << " holder=" << resp.holder();
+    dfs_log(LL_DEBUG) << "Release Lock Response status: " << rpc_status.error_message();
+    dfs_log(LL_DEBUG) << "Release Lock Response: granted=" << resp.granted() << " holder=" << resp.holder();
     return rpc_status.error_code();
-
 }
 
 StatusCode DFSClientNodeP2::Store(const std::string &filename) {
@@ -157,6 +156,14 @@ StatusCode DFSClientNodeP2::Store(const std::string &filename) {
     std::string buffer;
     buffer.resize(chunk_size);
     // int64_t offset = 0;
+
+    // Send the first chunk containing the file metadata for the server to check mtime and crc
+    dfs_service::FileChunk metadata_chunk;
+    metadata_chunk.set_client_id(this->client_id);
+    metadata_chunk.set_file_name(filename);
+    metadata_chunk.set_mtime(get_file_mtime(path));
+    metadata_chunk.set_crc(dfs_file_checksum(path, &this->crc_table));
+    writer->Write(metadata_chunk);
 
     while (file) {
         file.read(&buffer[0], chunk_size);

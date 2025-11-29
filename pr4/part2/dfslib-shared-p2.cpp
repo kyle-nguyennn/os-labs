@@ -91,3 +91,11 @@ std::map<std::string, dfs_file_info_t> dfs_reconcile_file_lists(
 
     return reconcile_map;
 }
+
+int64_t get_file_mtime(const std::string& filepath) {
+    struct stat st;
+    if (lstat(filepath.c_str(), &st) != 0) {
+        return 0;
+    }
+    return static_cast<int64_t>(st.st_mtime);
+}

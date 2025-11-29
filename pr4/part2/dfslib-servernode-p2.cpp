@@ -1,5 +1,6 @@
 #include <condition_variable>
 #include <deque>
+#include <grpcpp/impl/codegen/status_code_enum.h>
 #include <map>
 #include <mutex>
 #include <chrono>
@@ -200,6 +201,8 @@ public:
             file_info->set_deleted(false);
         }
         closedir(dir);
+        dfs_log(LL_DEBUG) << "Processed CallbackList request from client: " << request->client_id()
+            << " with " << response->files_size() << " files.";
     }
 
     /**
@@ -317,17 +320,19 @@ public:
                 
         dfs_service::FileChunk chunk;
         std::ofstream outfile;
-        std::string filename;
         std::string client_id;
-
-
+        std::string filename;
+        int64_t mtime;
+        // uint32_t crc;
         
         std::string path;
         size_t bytesReceived = 0;
-        // Read the first chunk to get the filename
+        // Read the first chunk to get the filename and metadata. data is not set for the first chunk
         if (reader->Read(&chunk)) {
             client_id = chunk.client_id();
             filename = chunk.file_name();
+            mtime = chunk.mtime();
+            // crc = chunk.crc();
             dfs_log(LL_DEBUG) << "Received Store from client " << client_id << " for file " << filename;
             // Check permission to write
             if (!access_granted(filename, client_id)) {
@@ -335,14 +340,26 @@ public:
                 return Status(StatusCode::RESOURCE_EXHAUSTED, "write lock not held by client");
             }
 
+            // Check crc and mtime to avoid unnecessary writes
+            // int64_t server_crc = dfs_file_checksum(WrapPath(filename), &this->crc_table);
             path = WrapPath(filename);
+            struct stat server_stat{};
+            if (stat(path.c_str(), &server_stat) != 0) {
+                dfs_log(LL_DEBUG) << "File does not exist on server. Proceeding to store file: " << filename;
+            } else {
+                int64_t server_mtime = get_file_mtime(path);
+                if (server_mtime >= mtime) {
+                    dfs_log(LL_DEBUG) << "Server file is newer than client file. Skipping store for file: " << filename;
+                    return Status(StatusCode::ALREADY_EXISTS, "server file is newer");
+                }
+            }
+
             outfile.open(path, std::ios::binary);
             if (!outfile.is_open()) {
                 return Status(StatusCode::NOT_FOUND, "cannot open file for writing");
             }
-            outfile.write(chunk.data().data(), chunk.data().size());
-            bytesReceived += chunk.data().size();
-            dfs_log(LL_DEBUG) << "Storing: " << path << " Received: " << bytesReceived << " bytes";
+
+            dfs_log(LL_DEBUG) << "Good to proceed streaming file: " << path;
         } else {
             return Status(StatusCode::CANCELLED, "no data received");
         }
