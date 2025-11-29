@@ -91,6 +91,10 @@ private:
     std::mutex fs_change_mutex;
     bool fs_changed = false;
 
+    // Write lock management
+    std::shared_mutex write_lock_mutex;
+    std::map<std::string, std::string> write_locks; // filename -> client_id
+
     /**
      * Prepend the mount path to the filename.
      *
@@ -246,6 +250,70 @@ public:
     // the implementations of your rpc protocol methods.
     //
 
+    bool access_granted(const std::string &filename, const std::string &client_id) {
+        std::shared_lock<std::shared_mutex> lock(this->write_lock_mutex);
+        auto it = this->write_locks.find(filename);
+        return (it != this->write_locks.end() && it->second == client_id);
+    }
+
+    Status AcquireWriteLock(ServerContext* context,
+             const dfs_service::LockRequest* request,
+             dfs_service::LockResponse* resp) override {
+        const std::string filename = request->file_name();
+        // const std::string client_id = request->client_id();
+        const std::string client_id = context->peer();
+
+        dfs_log(LL_DEBUG) << "Received AcquireWriteLock for file: " << filename << " from client: " << client_id;
+
+        std::unique_lock<std::shared_mutex> lock(this->write_lock_mutex);
+        auto it = this->write_locks.find(filename);
+        if (it == this->write_locks.end()) {
+            // lock is available
+            this->write_locks[filename] = client_id;
+            resp->set_granted(true);
+            resp->set_holder(client_id);
+            dfs_log(LL_DEBUG) << "Granted write lock for file: " << filename << " to client: " << client_id;
+        } else {
+            // lock is held by another client
+            resp->set_granted(false);
+            resp->set_holder(it->second);
+            dfs_log(LL_DEBUG) << "Write lock for file: " << filename << " is held by client: " << it->second;
+        }
+
+        if (context->IsCancelled()) {
+            return Status(StatusCode::DEADLINE_EXCEEDED, "deadline");
+        }
+        return Status::OK;
+    }
+
+    Status ReleaseWriteLock(ServerContext* context,
+             const dfs_service::LockRequest* request,
+             dfs_service::LockResponse* resp) override {
+        const std::string filename = request->file_name();
+        // const std::string client_id = request->client_id();
+        const std::string client_id = context->peer();
+
+        dfs_log(LL_DEBUG) << "Received ReleaseWriteLock for file: " << filename << " from client: " << client_id;
+
+        std::unique_lock<std::shared_mutex> lock(this->write_lock_mutex);
+        auto it = this->write_locks.find(filename);
+        if (it != this->write_locks.end() && it->second == client_id) {
+            this->write_locks.erase(it);
+            resp->set_granted(false);
+            resp->set_holder("");
+            dfs_log(LL_DEBUG) << "Released write lock for file: " << filename << " from client: " << client_id;
+        } else {
+            resp->set_granted(false);
+            resp->set_holder(it != this->write_locks.end() ? it->second : "");
+            dfs_log(LL_DEBUG) << "Write lock for file: " << filename << " not held by client: " << client_id;
+        }
+
+        if (context->IsCancelled()) {
+            return Status(StatusCode::DEADLINE_EXCEEDED, "deadline");
+        }
+        return Status::OK;
+    }
+
     Status Store(ServerContext* context,
              ServerReader<dfs_service::FileChunk>* reader,
              dfs_service::StoreResponse* resp) override {
@@ -254,12 +322,19 @@ public:
         std::string filename;
 
         dfs_log(LL_DEBUG) << "Received Store from client " << context->peer();
+
         
         std::string path;
         size_t bytesReceived = 0;
         // Read the first chunk to get the filename
         if (reader->Read(&chunk)) {
             filename = chunk.file_name();
+            // Check permission to write
+            if (!access_granted(filename, context->peer())) {
+                dfs_log(LL_ERROR) << "Write lock not held by client " << context->peer() << " for file " << filename;
+                return Status(StatusCode::PERMISSION_DENIED, "write lock not held by client");
+            }
+
             path = WrapPath(filename);
             outfile.open(path, std::ios::binary);
             if (!outfile.is_open()) {
@@ -293,7 +368,6 @@ public:
             this->fs_changed = true;
         }
         this->fs_change_cv.notify_all();
-        
         return Status::OK;
     }
 
@@ -348,6 +422,11 @@ public:
              dfs_service::DeleteResponse* resp) override {
         const std::string path = WrapPath(request->file_name());
         dfs_log(LL_DEBUG) << "Received Delete: " << path << " from client " << context->peer();
+        
+        if (!access_granted(request->file_name(), context->peer())) {
+            dfs_log(LL_ERROR) << "Write lock not held by client " << context->peer() << " for file " << request->file_name();
+            return Status(StatusCode::PERMISSION_DENIED, "write lock not held by client");
+        }
 
         if (std::remove(path.c_str()) != 0) {
             return Status(StatusCode::NOT_FOUND, "file not found");
