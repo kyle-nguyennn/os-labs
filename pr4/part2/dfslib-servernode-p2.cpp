@@ -339,16 +339,14 @@ public:
         std::ofstream outfile;
         std::string client_id;
         std::string filename;
-        int64_t mtime;
         // uint32_t crc;
-        
+
         std::string path;
         size_t bytesReceived = 0;
         // Read the first chunk to get the filename and metadata. data is not set for the first chunk
         if (reader->Read(&chunk)) {
             client_id = chunk.client_id();
             filename = chunk.file_name();
-            mtime = chunk.mtime();
             // crc = chunk.crc();
             dfs_log(LL_DEBUG) << "Received Store from client " << client_id << " for file " << filename;
             // Check permission to write
@@ -357,17 +355,16 @@ public:
                 return Status(StatusCode::RESOURCE_EXHAUSTED, "write lock not held by client");
             }
 
-            // Check crc and mtime to avoid unnecessary writes
-            // int64_t server_crc = dfs_file_checksum(WrapPath(filename), &this->crc_table);
+            // Check crc to avoid unnecessary writes
             path = WrapPath(filename);
             struct stat server_stat{};
             if (stat(path.c_str(), &server_stat) != 0) {
                 dfs_log(LL_DEBUG) << "File does not exist on server. Proceeding to store file: " << filename;
             } else {
-                int64_t server_mtime = get_file_mtime(path);
-                if (server_mtime >= mtime) {
-                    dfs_log(LL_DEBUG) << "Server file is newer than client file. Skipping store for file: " << filename;
-                    return Status(StatusCode::ALREADY_EXISTS, "server file is newer");
+                uint32_t server_crc = dfs_file_checksum(path, &this->crc_table);
+                if (server_crc == chunk.crc()) {
+                    dfs_log(LL_DEBUG) << "Server file checksum matches client. Skipping store for file: " << filename;
+                    return Status(StatusCode::ALREADY_EXISTS, "file unchanged");
                 }
             }
 
