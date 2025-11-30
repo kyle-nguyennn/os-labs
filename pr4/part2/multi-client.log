@@ -1,0 +1,144 @@
+
+=== Test 1: Creating files ===
+Creating file: /home/dnguyen3/code/os-labs/pr4/mnt/client/dfsstress-1764434358154104-1635437715-0.txt
+Waiting for inotify to process dfsstress-1764434358154104-1635437715-0.txt...
+CLIENT-1 [stderr]: >> DEBUG1: Acquire Lock for file : dfsstress-1764434358154104-1635437715-0.txt
+SERVER [stderr]: >> DEBUG1: Received AcquireWriteLock for file: dfsstress-1764434358154104-1635437715-0.txt from client: kylenguyen-pcT138286430607424
+SERVER [stderr]: >> DEBUG1: Granted write lock for file: dfsstress-1764434358154104-1635437715-0.txt to client: kylenguyen-pcT138286430607424
+CLIENT-1 [stderr]: >> DEBUG1: Acquire Lock Response status:
+CLIENT-1 [stderr]: >> DEBUG1: Acquire Lock Response: granted=1 holder=kylenguyen-pcT138286430607424
+CLIENT-1 [stderr]: >> DEBUG1: Write lock acquired for file: dfsstress-1764434358154104-1635437715-0.txt
+CLIENT-1 [stderr]: >> DEBUG1: Storing: /home/dnguyen3/code/os-labs/pr4/mnt/client/dfsstress-1764434358154104-1635437715-0.txt
+CLIENT-1 [stderr]: >> DEBUG1: Streaming 79 bytes from file.
+SERVER [stderr]: >> DEBUG1: Received Store from client kylenguyen-pcT138286430607424 for file dfsstress-1764434358154104-1635437715-0.txt
+CLIENT-1 [stderr]: >> DEBUG1: Finished sending file data, waiting for server response...
+SERVER [stderr]: >> DEBUG1: File does not exist on server. Proceeding to store file: dfsstress-1764434358154104-1635437715-0.txt
+SERVER [stderr]: >> DEBUG1: Good to proceed streaming file: /home/dnguyen3/code/os-labs/pr4/mnt/server/dfsstress-1764434358154104-1635437715-0.txt
+SERVER [stderr]: >> DEBUG1: Storing: /home/dnguyen3/code/os-labs/pr4/mnt/server/dfsstress-1764434358154104-1635437715-0.txt Received: 79 bytes
+SERVER [stderr]: >> DEBUG1: Finished storing file: /home/dnguyen3/code/os-labs/pr4/mnt/server/dfsstress-1764434358154104-1635437715-0.txt Total bytes received: 79
+CLIENT-1 [stderr]: >> DEBUG1: Store done: status=1. message=store ok
+SERVER [stderr]: >> DEBUG1: Processed CallbackList request from client:  with 1 files.
+CLIENT-1 [stderr]: >> DEBUG1: Release Lock for file : dfsstress-1764434358154104-1635437715-0.txt
+SERVER [stderr]: >> DEBUG1: Received ReleaseWriteLock for file: dfsstress-1764434358154104-1635437715-0.txt from client: kylenguyen-pcT138286430607424
+SERVER [stderr]: >> DEBUG1: Released write lock for file: dfsstress-1764434358154104-1635437715-0.txt from client: kylenguyen-pcT138286430607424
+CLIENT-1 [stderr]: >> DEBUG1: Release Lock Response status:
+CLIENT-1 [stderr]: >> DEBUG1: Release Lock Response: granted=0 holder=
+CLIENT-1 [stderr]: >> DEBUG1: Released write lock for file: dfsstress-1764434358154104-1635437715-0.txt
+CLIENT-1 [stderr]: >> DEBUG1: Number of items to reconcile: 1
+CLIENT-1 [stderr]: >> DEBUG1: Acquire Lock for file : dfsstress-1764434358154104-1635437715-0.txt
+CLIENT-1 [stderr]: >> DEBUG1: File is in sync, no action needed: dfsstress-1764434358154104-1635437715-0.txt
+CLIENT-1 [stderr]: >> DEBUG1: Send CallbackList
+SERVER [stderr]: >> DEBUG1: Received AcquireWriteLock for file: dfsstress-1764434358154104-1635437715-0.txt from client: kylenguyen-pcT138286430607424
+SERVER [stderr]: >> DEBUG1: Granted write lock for file: dfsstress-1764434358154104-1635437715-0.txt to client: kylenguyen-pcT138286430607424
+CLIENT-1 [stderr]: >> DEBUG1: Acquire Lock Response status:
+CLIENT-1 [stderr]: >> DEBUG1: Acquire Lock Response: granted=1 holder=kylenguyen-pcT138286430607424
+CLIENT-1 [stderr]: >> DEBUG1: Write lock acquired for file: dfsstress-1764434358154104-1635437715-0.txt
+CLIENT-1 [stderr]: >> DEBUG1: Storing: /home/dnguyen3/code/os-labs/pr4/mnt/client/dfsstress-1764434358154104-1635437715-0.txt
+CLIENT-1 [stderr]: >> DEBUG1: Streaming 79 bytes from file.
+SERVER [stderr]: >> DEBUG1: Received Store from client kylenguyen-pcT138286430607424 for file dfsstress-1764434358154104-1635437715-0.txt
+SERVER [stderr]: >> DEBUG1: Server file is newer than client file. Skipping store for file: dfsstress-1764434358154104-1635437715-0.txt
+CLIENT-1 [stderr]: >> DEBUG1: Finished sending file data, waiting for server response...
+CLIENT-1 [stderr]: !! ERROR: Store failed: status=6 message=server file is newer
+CLIENT-1 [stderr]: >> DEBUG1: Release Lock for file : dfsstress-1764434358154104-1635437715-0.txt
+SERVER [stderr]: >> DEBUG1: Received ReleaseWriteLock for file: dfsstress-1764434358154104-1635437715-0.txt from client: kylenguyen-pcT138286430607424
+SERVER [stderr]: >> DEBUG1: Released write lock for file: dfsstress-1764434358154104-1635437715-0.txt from client: kylenguyen-pcT138286430607424
+CLIENT-1 [stderr]: >> DEBUG1: Release Lock Response status:
+CLIENT-1 [stderr]: >> DEBUG1: Release Lock Response: granted=0 holder=
+CLIENT-1 [stderr]: >> DEBUG1: Released write lock for file: dfsstress-1764434358154104-1635437715-0.txt
+Running client command: ./bin/dfs-client-p2 -a 0.0.0.0:51189 -m /home/dnguyen3/code/os-labs/pr4/mnt/client -d 2 -t 5000 store dfsstress-1764434358154104-1635437715-0.txt
+SERVER [stderr]: >> DEBUG1: Received AcquireWriteLock for file: dfsstress-1764434358154104-1635437715-0.txt from client: kylenguyen-pcT134026545625152
+SERVER [stderr]: >> DEBUG1: Granted write lock for file: dfsstress-1764434358154104-1635437715-0.txt to client: kylenguyen-pcT134026545625152
+SERVER [stderr]: >> DEBUG1: Received Store from client kylenguyen-pcT134026545625152 for file dfsstress-1764434358154104-1635437715-0.txt
+SERVER [stderr]: >> DEBUG1: Server file is newer than client file. Skipping store for file: dfsstress-1764434358154104-1635437715-0.txt
+SERVER [stderr]: >> DEBUG1: Received ReleaseWriteLock for file: dfsstress-1764434358154104-1635437715-0.txt from client: kylenguyen-pcT134026545625152
+SERVER [stderr]: >> DEBUG1: Released write lock for file: dfsstress-1764434358154104-1635437715-0.txt from client: kylenguyen-pcT134026545625152
+COMMAND [stderr]: >> DEBUG1: Acquire Lock for file : dfsstress-1764434358154104-1635437715-0.txt
+>> DEBUG1: Acquire Lock Response status:
+>> DEBUG1: Acquire Lock Response: granted=1 holder=kylenguyen-pcT134026545625152
+>> DEBUG1: Write lock acquired for file: dfsstress-1764434358154104-1635437715-0.txt
+>> DEBUG1: Storing: /home/dnguyen3/code/os-labs/pr4/mnt/client/dfsstress-1764434358154104-1635437715-0.txt
+>> DEBUG1: Streaming 79 bytes from file.
+>> DEBUG1: Finished sending file data, waiting for server response...
+!! ERROR: Store failed: status=6 message=server file is newer
+>> DEBUG1: Release Lock for file : dfsstress-1764434358154104-1635437715-0.txt
+>> DEBUG1: Release Lock Response status:
+>> DEBUG1: Release Lock Response: granted=0 holder=
+>> DEBUG1: Released write lock for file: dfsstress-1764434358154104-1635437715-0.txt
+✅ File dfsstress-1764434358154104-1635437715-0.txt stored successfully
+Creating file: /home/dnguyen3/code/os-labs/pr4/mnt/client2/dfsstress-1764434358154104-1941046847-0.txt
+Waiting for inotify to process dfsstress-1764434358154104-1941046847-0.txt...
+CLIENT-2 [stderr]: >> DEBUG1: Acquire Lock for file : dfsstress-1764434358154104-1941046847-0.txt
+SERVER [stderr]: >> DEBUG1: Received AcquireWriteLock for file: dfsstress-1764434358154104-1941046847-0.txt from client: kylenguyen-pcT127455116113984
+SERVER [stderr]: >> DEBUG1: Granted write lock for file: dfsstress-1764434358154104-1941046847-0.txt to client: kylenguyen-pcT127455116113984
+CLIENT-2 [stderr]: >> DEBUG1: Acquire Lock Response status:
+CLIENT-2 [stderr]: >> DEBUG1: Acquire Lock Response: granted=1 holder=kylenguyen-pcT127455116113984
+CLIENT-2 [stderr]: >> DEBUG1: Write lock acquired for file: dfsstress-1764434358154104-1941046847-0.txt
+CLIENT-2 [stderr]: >> DEBUG1: Storing: /home/dnguyen3/code/os-labs/pr4/mnt/client2/dfsstress-1764434358154104-1941046847-0.txt
+CLIENT-2 [stderr]: >> DEBUG1: Streaming 80 bytes from file.
+SERVER [stderr]: >> DEBUG1: Received Store from client kylenguyen-pcT127455116113984 for file dfsstress-1764434358154104-1941046847-0.txt
+SERVER [stderr]: >> DEBUG1: File does not exist on server. Proceeding to store file: dfsstress-1764434358154104-1941046847-0.txt
+CLIENT-2 [stderr]: >> DEBUG1: Finished sending file data, waiting for server response...
+SERVER [stderr]: >> DEBUG1: Good to proceed streaming file: /home/dnguyen3/code/os-labs/pr4/mnt/server/dfsstress-1764434358154104-1941046847-0.txt
+SERVER [stderr]: >> DEBUG1: Storing: /home/dnguyen3/code/os-labs/pr4/mnt/server/dfsstress-1764434358154104-1941046847-0.txt Received: 80 bytes
+SERVER [stderr]: >> DEBUG1: Finished storing file: /home/dnguyen3/code/os-labs/pr4/mnt/server/dfsstress-1764434358154104-1941046847-0.txt Total bytes received: 80
+CLIENT-2 [stderr]: >> DEBUG1: Store done: status=1. message=store ok
+CLIENT-2 [stderr]: >> DEBUG1: Release Lock for file : dfsstress-1764434358154104-1941046847-0.txt
+SERVER [stderr]: >> DEBUG1: Processed CallbackList request from client:  with 2 files.
+SERVER [stderr]: >> DEBUG1: Received ReleaseWriteLock for file: dfsstress-1764434358154104-1941046847-0.txt from client: kylenguyen-pcT127455116113984
+SERVER [stderr]: >> DEBUG1: Released write lock for file: dfsstress-1764434358154104-1941046847-0.txt from client: kylenguyen-pcT127455116113984
+CLIENT-2 [stderr]: >> DEBUG1: Release Lock Response status:
+CLIENT-2 [stderr]: >> DEBUG1: Release Lock Response: granted=0 holder=
+CLIENT-2 [stderr]: >> DEBUG1: Released write lock for file: dfsstress-1764434358154104-1941046847-0.txt
+CLIENT-2 [stderr]: >> DEBUG1: Number of items to reconcile: 2
+CLIENT-2 [stderr]: >> DEBUG1: File missing locally, fetching: dfsstress-1764434358154104-1635437715-0.txt
+CLIENT-2 [stderr]: >> DEBUG1: Acquire Lock for file : dfsstress-1764434358154104-1941046847-0.txt
+SERVER [stderr]: >> DEBUG1: Received AcquireWriteLock for file: dfsstress-1764434358154104-1941046847-0.txt from client: kylenguyen-pcT127455116113984
+SERVER [stderr]: >> DEBUG1: Granted write lock for file: dfsstress-1764434358154104-1941046847-0.txt to client: kylenguyen-pcT127455116113984
+CLIENT-2 [stderr]: >> DEBUG1: Acquire Lock Response status:
+CLIENT-2 [stderr]: >> DEBUG1: Acquire Lock Response: granted=1 holder=kylenguyen-pcT127455116113984
+CLIENT-2 [stderr]: >> DEBUG1: Write lock acquired for file: dfsstress-1764434358154104-1941046847-0.txt
+CLIENT-2 [stderr]: >> DEBUG1: Storing: /home/dnguyen3/code/os-labs/pr4/mnt/client2/dfsstress-1764434358154104-1941046847-0.txt
+CLIENT-2 [stderr]: >> DEBUG1: Streaming 80 bytes from file.
+SERVER [stderr]: >> DEBUG1: Received Store from client kylenguyen-pcT127455116113984 for file dfsstress-1764434358154104-1941046847-0.txt
+SERVER [stderr]: >> DEBUG1: Server file is newer than client file. Skipping store for file: dfsstress-1764434358154104-1941046847-0.txt
+CLIENT-2 [stderr]: >> DEBUG1: Finished sending file data, waiting for server response...
+CLIENT-2 [stderr]: !! ERROR: Store failed: status=6 message=server file is newer
+CLIENT-2 [stderr]: >> DEBUG1: Release Lock for file : dfsstress-1764434358154104-1941046847-0.txt
+SERVER [stderr]: >> DEBUG1: Received ReleaseWriteLock for file: dfsstress-1764434358154104-1941046847-0.txt from client: kylenguyen-pcT127455116113984
+SERVER [stderr]: >> DEBUG1: Released write lock for file: dfsstress-1764434358154104-1941046847-0.txt from client: kylenguyen-pcT127455116113984
+CLIENT-2 [stderr]: >> DEBUG1: Release Lock Response status:
+CLIENT-2 [stderr]: >> DEBUG1: Release Lock Response: granted=0 holder=
+CLIENT-2 [stderr]: >> DEBUG1: Released write lock for file: dfsstress-1764434358154104-1941046847-0.txt
+CLIENT-2 [stderr]: >> DEBUG1: Fetch: /home/dnguyen3/code/os-labs/pr4/mnt/client2/dfsstress-1764434358154104-1635437715-0.txt
+SERVER [stderr]: >> DEBUG1: Received Fetch: /home/dnguyen3/code/os-labs/pr4/mnt/server/dfsstress-1764434358154104-1635437715-0.txt from client kylenguyen-pcT127455116113984
+SERVER [stderr]: >> DEBUG1: File size: 79
+SERVER [stderr]: >> DEBUG1: /home/dnguyen3/code/os-labs/pr4/mnt/server/dfsstress-1764434358154104-1635437715-0.txt Sent: 79/79 bytes
+CLIENT-2 [stderr]: >> DEBUG1: Received: 79 bytes. Total: 79
+CLIENT-2 [stderr]: >> DEBUG1: Finished receiving file data. Total bytes: 79
+CLIENT-2 [stderr]: !! ERROR: Ignored file type used for /home/dnguyen3/code/os-labs/pr4/mnt/client2/dfsstress-1764434358154104-1635437715-0.txt.tmp
+CLIENT-2 [stderr]: >> DEBUG1: Fetch done: status=0 message=
+CLIENT-2 [stderr]: !! ERROR: Ignored file type used for /home/dnguyen3/code/os-labs/pr4/mnt/client2/dfsstress-1764434358154104-1635437715-0.txt.tmp
+CLIENT-2 [stderr]: >> DEBUG1: Fetched file from server: dfsstress-1764434358154104-1635437715-0.txt
+CLIENT-2 [stderr]: >> DEBUG1: File is in sync, no action needed: dfsstress-1764434358154104-1941046847-0.txt
+CLIENT-2 [stderr]: >> DEBUG1: Send CallbackList
+Running client command: ./bin/dfs-client-p2 -a 0.0.0.0:51189 -m /home/dnguyen3/code/os-labs/pr4/mnt/client2 -d 2 -t 5000 store dfsstress-1764434358154104-1941046847-0.txt
+SERVER [stderr]: >> DEBUG1: Received AcquireWriteLock for file: dfsstress-1764434358154104-1941046847-0.txt from client: kylenguyen-pcT131752437041216
+SERVER [stderr]: >> DEBUG1: Granted write lock for file: dfsstress-1764434358154104-1941046847-0.txt to client: kylenguyen-pcT131752437041216
+SERVER [stderr]: >> DEBUG1: Received Store from client kylenguyen-pcT131752437041216 for file dfsstress-1764434358154104-1941046847-0.txt
+SERVER [stderr]: >> DEBUG1: Server file is newer than client file. Skipping store for file: dfsstress-1764434358154104-1941046847-0.txt
+SERVER [stderr]: >> DEBUG1: Received ReleaseWriteLock for file: dfsstress-1764434358154104-1941046847-0.txt from client: kylenguyen-pcT131752437041216
+SERVER [stderr]: >> DEBUG1: Released write lock for file: dfsstress-1764434358154104-1941046847-0.txt from client: kylenguyen-pcT131752437041216
+COMMAND [stderr]: >> DEBUG1: Acquire Lock for file : dfsstress-1764434358154104-1941046847-0.txt
+>> DEBUG1: Acquire Lock Response status:
+>> DEBUG1: Acquire Lock Response: granted=1 holder=kylenguyen-pcT131752437041216
+>> DEBUG1: Write lock acquired for file: dfsstress-1764434358154104-1941046847-0.txt
+>> DEBUG1: Storing: /home/dnguyen3/code/os-labs/pr4/mnt/client2/dfsstress-1764434358154104-1941046847-0.txt
+>> DEBUG1: Streaming 80 bytes from file.
+>> DEBUG1: Finished sending file data, waiting for server response...
+!! ERROR: Store failed: status=6 message=server file is newer
+>> DEBUG1: Release Lock for file : dfsstress-1764434358154104-1941046847-0.txt
+>> DEBUG1: Release Lock Response status:
+>> DEBUG1: Release Lock Response: granted=0 holder=
+>> DEBUG1: Released write lock for file: dfsstress-1764434358154104-1941046847-0.txt
+✅ File dfsstress-1764434358154104-1941046847-0.txt stored successfully
+Waiting for all files to be processed and synchronized...

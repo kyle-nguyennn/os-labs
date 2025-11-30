@@ -10,6 +10,7 @@
 
 #include <grpcpp/grpcpp.h>
 
+#include "dfslib-shared-p2.h"
 #include "src/dfslibx-clientnode-p2.h"
 #include "proto-src/dfs-service.grpc.pb.h"
 
@@ -146,6 +147,13 @@ private:
 
     /** Mutex for coordinating the async and inotify threads **/
     std::mutex sync_mutex;
+    uint64_t event_time = 0;
+    std::map<std::string, dfs_file_info_t> local_state;
+    bool local_state_initialized = false;
+
+    void EnsureLocalStateInitialized();
+    dfs_file_info_t BuildLocalFileInfo(const std::string &filename);
+    bool update_local_state(const std::string &filename, const dfs_file_info_t &info);
 
 };
 #endif

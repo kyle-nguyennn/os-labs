@@ -4,9 +4,12 @@
 #include <grpcpp/impl/codegen/status_code_enum.h>
 #include <map>
 #include <mutex>
+#include <unordered_map>
 #include <chrono>
+#include <ctime>
 #include <cstdio>
 #include <string>
+#include <sys/types.h>
 #include <thread>
 #include <errno.h>
 #include <iostream>
@@ -17,6 +20,7 @@
 #include <grpcpp/grpcpp.h>
 
 #include "proto-src/dfs-service.grpc.pb.h"
+#include "src/dfs-utils.h"
 #include "src/dfslibx-call-data.h"
 #include "src/dfslibx-service-runner.h"
 #include "dfslib-shared-p2.h"
@@ -90,7 +94,9 @@ private:
     // notification queue for file system changes
     std::condition_variable fs_change_cv;
     std::mutex fs_change_mutex;
-    bool fs_changed = false;
+    uint64_t fs_event_time = 0;
+    std::unordered_map<std::string, uint64_t> last_event_time; // request->peer() -> last sent event time
+    std::map<std::string, dfs_file_info_t> local_state;
 
     // Write lock management
     std::mutex write_lock_mutex;
@@ -118,6 +124,9 @@ public:
         this->runner.SetAddress(server_address);
         this->runner.SetNumThreads(num_async_threads);
         this->runner.SetQueuedRequestsCallback([&]{ this->ProcessQueuedRequests(); });
+
+        this->local_state = dfs_initialize_local_state(this->mount_path, &this->crc_table);
+        this->fs_event_time = 1; // allow initial callback delivery with on-disk snapshot
 
     }
 
@@ -178,31 +187,39 @@ public:
         // The client should receive a list of files or modifications that represent the changes this service
         // is aware of. The client will then need to make the appropriate calls based on those changes.
         //
-        std::unique_lock<std::mutex> lock(this->fs_change_mutex);
-        this->fs_change_cv.wait(lock, [&]{ return this->fs_changed;});
-        this->fs_changed = false;
-        lock.unlock();
+        // request does not set client_id, use context->peer() to identify client
 
-        // Build CallbackListResponse
-        DIR* dir = opendir(mount_path.c_str());
-        if (!dir) return;
-
-        struct dirent* entry;
-        while ((entry = readdir(dir)) != nullptr) {
-            if (entry->d_type != DT_REG) continue; // ignore non-regular files, i.e, directories, symlinks, sockets
-            std::string abs_path = mount_path + entry->d_name;
-
-            struct stat st{};
-            if (stat(abs_path.c_str(), &st) != 0) continue;
-
-            auto* file_info = response->add_files();
-            file_info->set_file_name(entry->d_name);
-            file_info->set_mtime(static_cast<int64_t>(st.st_mtime));
-            file_info->set_crc(dfs_file_checksum(abs_path, &crc_table));
-            file_info->set_deleted(false);
+        const std::string client = context->peer();
+        dfs_log(LL_DEBUG) << "ProcessCallback start for client " << client
+            << " request ptr=" << request;
+        std::unique_lock<std::mutex> fs_lock(this->fs_change_mutex);
+        if (last_event_time.find(client) == last_event_time.end()) {
+            last_event_time[client] = 0;
         }
-        closedir(dir);
-        dfs_log(LL_DEBUG) << "Processed CallbackList request from client: " << request->client_id()
+        const uint64_t last_seen_event_time = last_event_time[client];
+        dfs_log(LL_DEBUG) << "ProcessCallback: setting last seen event time for client "
+            << client << " to " << last_seen_event_time;
+        this->fs_change_cv.wait(fs_lock, [&]{
+            return (fs_event_time > last_seen_event_time);
+        });
+
+        const uint64_t snapshot_event_time = fs_event_time;
+        auto snapshot_state = local_state;
+        last_event_time[client] = snapshot_event_time;
+        fs_lock.unlock();
+
+        response->set_event_time(static_cast<int64_t>(snapshot_event_time));
+        auto* response_files = response->mutable_files();
+        for (const auto &entry : snapshot_state) {
+            const auto &info = entry.second;
+            dfs_service::FileInfo& file_info = (*response_files)[info.file_name];
+            file_info.set_file_name(info.file_name);
+            file_info.set_mtime(static_cast<int64_t>(info.mtime));
+            file_info.set_crc(info.crc);
+            file_info.set_deleted(info.deleted);
+        }
+
+        dfs_log(LL_DEBUG) << "Processed CallbackList request from client: " << client
             << " with " << response->files_size() << " files.";
     }
 
@@ -382,7 +399,13 @@ public:
         // Notify file system change
         {
             std::lock_guard<std::mutex> lock(this->fs_change_mutex);
-            this->fs_changed = true;
+            dfs_file_info_t info;
+            info.file_name = filename;
+            info.mtime = static_cast<int>(get_file_mtime(path));
+            info.crc = dfs_file_checksum(path, &this->crc_table);
+            info.deleted = false;
+            local_state[filename] = info;
+            ++fs_event_time;
         }
         this->fs_change_cv.notify_all();
         return Status::OK;
@@ -413,13 +436,13 @@ public:
             dfs_log(LL_DEBUG) << "Client file crc matches server file crc. Skipping transfer for file: " << request->file_name();
             return Status(StatusCode::ALREADY_EXISTS, "file unchanged");
         }
-        if (request->mtime() != 0) {
-            int64_t server_mtime = st.st_mtime;
-            if (server_mtime <= request->mtime()) {
-                dfs_log(LL_DEBUG) << "Client file mtime is newer than server file mtime. Skipping transfer for file: " << request->file_name();
-                return Status(StatusCode::ALREADY_EXISTS, "file unchanged");
-            }
-        }
+        // if (request->mtime() != 0) {
+            // int64_t server_mtime = st.st_mtime;
+            // if (server_mtime <= request->mtime()) {
+            //     dfs_log(LL_DEBUG) << "Client file mtime is newer than server file mtime. Skipping transfer for file: " << request->file_name();
+            //     return Status(StatusCode::ALREADY_EXISTS, "file unchanged");
+            // }
+        // }
 
         size_t bytesSent = 0;
         dfs_service::FileChunk chunk;
@@ -471,10 +494,18 @@ public:
         resp->set_ok(true);
         resp->set_message("delete ok");
 
+        dfs_log(LL_DEBUG) << "Deleted file: " << path;
+
         // Notify file system change
         {
             std::lock_guard<std::mutex> lock(this->fs_change_mutex);
-            this->fs_changed = true;
+            dfs_file_info_t info;
+            info.file_name = request->file_name();
+            info.mtime = static_cast<int>(std::time(nullptr));
+            info.crc = 0;
+            info.deleted = true;
+            local_state[info.file_name] = info;
+            ++fs_event_time;
         }
         this->fs_change_cv.notify_all();
 

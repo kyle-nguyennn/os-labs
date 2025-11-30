@@ -2,10 +2,12 @@
 #include <mutex>
 #include <sys/stat.h>
 #include <vector>
+#include <set>
 #include <string>
 #include <thread>
 #include <cstdio>
 #include <chrono>
+#include <ctime>
 #include <errno.h>
 #include <csignal>
 #include <iostream>
@@ -128,6 +130,7 @@ StatusCode DFSClientNodeP2::Store(const std::string &filename) {
 
     // Acquiring local lock before performing DF mutation operations
     std::lock_guard<std::mutex> lock(this->sync_mutex);
+    EnsureLocalStateInitialized();
 
     StatusCode writeLockStatusCode = this->RequestWriteAccess(filename);
     if (writeLockStatusCode != StatusCode::OK) {
@@ -190,6 +193,8 @@ StatusCode DFSClientNodeP2::Store(const std::string &filename) {
                                 << " message=" << rpcStatus.error_message();
     } else {
         dfs_log(LL_DEBUG) << "Store done: status=" << resp.ok() << ". message=" << resp.message();
+        dfs_file_info_t info = BuildLocalFileInfo(filename);
+        update_local_state(filename, info);
     }
 
     // Release the write lock after storing
@@ -228,6 +233,7 @@ StatusCode DFSClientNodeP2::Fetch(const std::string &filename) {
 
     // Acquiring local lock before performing DF mutation operations
     std::lock_guard<std::mutex> lock(this->sync_mutex);
+    EnsureLocalStateInitialized();
 
     ClientContext context;
     auto deadline = std::chrono::system_clock::now() +
@@ -282,9 +288,14 @@ StatusCode DFSClientNodeP2::Fetch(const std::string &filename) {
     }
 
     Status rpcStatus = reader->Finish();
-    dfs_log(LL_DEBUG) << "Fetch done: " << "status=" << rpcStatus.error_code() 
+    StatusCode status_code = rpcStatus.error_code();
+    if (status_code == StatusCode::OK) {
+        dfs_file_info_t info = BuildLocalFileInfo(filename);
+        update_local_state(filename, info);
+    }
+    dfs_log(LL_DEBUG) << "Fetch done: " << "status=" << status_code 
                                 << " message=" << rpcStatus.error_message();
-    return rpcStatus.error_code();
+    return status_code;
 }
 
 StatusCode DFSClientNodeP2::Delete(const std::string& filename) {
@@ -305,6 +316,7 @@ StatusCode DFSClientNodeP2::Delete(const std::string& filename) {
 
     // Acquiring local lock before performing DF mutation operations
     std::lock_guard<std::mutex> lock(this->sync_mutex);
+    EnsureLocalStateInitialized();
 
     StatusCode writeLockStatusCode = this->RequestWriteAccess(filename);
     if (writeLockStatusCode != StatusCode::OK) {
@@ -328,6 +340,16 @@ StatusCode DFSClientNodeP2::Delete(const std::string& filename) {
     dfs_log(LL_DEBUG) << "Delete: " << filename;
     Status rpc_status = this->service_stub->Delete(&context, deleteReq, &resp);
     dfs_log(LL_DEBUG) << "Delete Response status: " << resp.message();
+
+    if (rpc_status.ok()) {
+        std::remove(path.c_str());
+        dfs_file_info_t info;
+        info.file_name = filename;
+        info.deleted = true;
+        info.crc = 0;
+        info.mtime = static_cast<int>(std::time(nullptr));
+        update_local_state(filename, info);
+    }
 
 
     // Release the write lock after deleting
@@ -503,85 +525,116 @@ void DFSClientNodeP2::HandleCallbackList() {
                 //
                 
                 // Reconcile the file list from the server with the local file system
+                uint64_t new_event_time = call_data->reply.event_time();
+                dfs_log(LL_DEBUG) << "Event time from server: " << new_event_time;
                 std::map<std::string,dfs_file_info_t> server_file_map;
-                for (const auto& file_info : call_data->reply.files()) {
+                for (const auto& entry : call_data->reply.files()) {
                     dfs_file_info_t info;
-                    info.file_name = file_info.file_name();
-                    info.mtime = file_info.mtime();
-                    info.crc = file_info.crc();
+                    info.file_name = entry.first;
+                    info.mtime = static_cast<int>(entry.second.mtime());
+                    info.crc = entry.second.crc();
+                    info.deleted = entry.second.deleted();
                     server_file_map[info.file_name] = info;
                 }
-                // Lock the state before getting local file map and reconciling
-                std::unique_lock<std::mutex> lock(this->sync_mutex);
-                std::map<std::string,dfs_file_info_t> local_file_map = get_local_file_map(this->mount_path, &this->crc_table);
 
-                std::map<std::string,short> reconcile_map = dfs_reconcile_file_lists(
-                    server_file_map,
-                    local_file_map
-                );
-                lock.unlock();
-                
-                dfs_log(LL_DEBUG) << "Number of items to reconcile: " << reconcile_map.size();
-                // Issue command based on reconciliation
-                for (const auto& entry : reconcile_map) {
-                    const std::string& filename = entry.first;
-                    short status_flag = entry.second;
+                std::map<std::string,dfs_file_info_t> local_snapshot;
+                {
+                    std::unique_lock<std::mutex> lock(this->sync_mutex);
+                    EnsureLocalStateInitialized();
+                    local_snapshot = this->local_state;
+                }
 
-                    if (status_flag == 1) { // Right only - local
-                        // File exists locally but not on server, store to server
-                        dfs_log(LL_DEBUG) << "File missing on server, storing: " << filename;
-                        StatusCode status = this->Store(filename);
-                        if (status != StatusCode::OK) {
-                            dfs_log(LL_ERROR) << "Failed to store file to server: " << filename;
-                        }
+                std::set<std::string> filenames;
+                for (const auto &entry : server_file_map) {
+                    filenames.insert(entry.first);
+                }
+                for (const auto &entry : local_snapshot) {
+                    filenames.insert(entry.first);
+                }
+
+                dfs_log(LL_DEBUG) << "Reconciling " << filenames.size() << " files against server snapshot";
+                for (const auto &filename : filenames) {
+                    dfs_file_info_t server_info;
+                    dfs_file_info_t client_info;
+
+                    auto server_it = server_file_map.find(filename);
+                    if (server_it != server_file_map.end()) {
+                        server_info = server_it->second;
+                    } else {
+                        server_info.file_name = filename;
+                        server_info.mtime = 0;
+                        server_info.crc = 0;
+                        server_info.deleted = false;
+                    }
+
+                    auto client_it = local_snapshot.find(filename);
+                    if (client_it != local_snapshot.end()) {
+                        client_info = client_it->second;
+                    } else {
+                        client_info.file_name = filename;
+                        client_info.mtime = 0;
+                        client_info.crc = 0;
+                        client_info.deleted = true;
+                    }
+
+                    if (server_info.deleted && client_info.deleted) {
                         continue;
-                    } else if (status_flag == -1) { // Left only - server
-                        // File exists on server but not locally, fetch from server
-                        dfs_log(LL_DEBUG) << "File missing locally, fetching: " << filename;
-                        StatusCode status = this->Fetch(filename);
-                        if (status != StatusCode::OK) {
-                            dfs_log(LL_ERROR) << "Failed to fetch file from server: " << filename;
+                    }
+
+                    if (server_info.deleted && !client_info.deleted) {
+                        dfs_log(LL_DEBUG) << "Server tombstone detected for " << filename << ", removing local copy";
+                        const std::string path = WrapPath(filename);
+                        std::remove(path.c_str());
+                        dfs_file_info_t tombstone = client_info;
+                        tombstone.deleted = true;
+                        tombstone.crc = 0;
+                        tombstone.mtime = server_info.mtime;
+                        {
+                            std::lock_guard<std::mutex> state_lock(this->sync_mutex);
+                            update_local_state(filename, tombstone);
                         }
                         continue;
                     }
-                    
-                    // For file existing on both sides, compare mtime and crc
-                    const dfs_file_info_t& server_info = server_file_map[filename];
-                    const dfs_file_info_t& local_info = local_file_map[filename];
 
-                    if (local_info.mtime > server_info.mtime) {
-                        // Local file is newer, store to server
-                        dfs_log(LL_DEBUG) << "Local file is newer, storing to server: " << filename;
-                        StatusCode status = this->Store(filename);
-                        if (status != StatusCode::OK) {
-                            dfs_log(LL_ERROR) << "Failed to store file to server: " << filename;
-                        }
-                    } else if (local_info.mtime < server_info.mtime) {
-                        // Server file is newer, fetch from server
-                        dfs_log(LL_DEBUG) << "Server file is newer, fetching from server: " << filename;
+                    if (!server_info.deleted && client_info.deleted) {
+                        dfs_log(LL_DEBUG) << "Missing locally, fetching: " << filename;
                         StatusCode status = this->Fetch(filename);
-                        if (status != StatusCode::OK) {
-                            dfs_log(LL_ERROR) << "Failed to fetch file from server: " << filename;
+                        if (status == StatusCode::OK) {
+                            dfs_log(LL_DEBUG) << "Fetched file from server: " << filename;
+                        } else if (status != StatusCode::ALREADY_EXISTS) {
+                            dfs_log(LL_ERROR) << "Failed to fetch file from server: " << filename << " status=" << status;
                         }
-                    } else if (local_info.crc != server_info.crc) {
-                        // File contents differ, but mtimes are the same
-                        // Decide on a policy; here we choose to fetch from server as source of truth
-                        dfs_log(LL_DEBUG) << "File contents differ, fetching from server: " << filename;
+                        continue;
+                    }
+
+                    if (server_info.crc == client_info.crc) {
+                        dfs_log(LL_DEBUG3) << "CRC match for " << filename << ", no action.";
+                        continue;
+                    }
+
+                    if (server_info.mtime >= client_info.mtime) {
+                        dfs_log(LL_DEBUG) << "Server copy newer/equal, fetching: " << filename;
                         StatusCode status = this->Fetch(filename);
-                        if (status != StatusCode::OK) {
-                            dfs_log(LL_ERROR) << "Failed to fetch file from server: " << filename;
+                        if (status == StatusCode::OK) {
+                            dfs_log(LL_DEBUG) << "Fetched file from server: " << filename;
+                        } else if (status != StatusCode::ALREADY_EXISTS) {
+                            dfs_log(LL_ERROR) << "Failed to fetch file from server: " << filename << " status=" << status;
                         }
                     } else {
-                        // File is in sync, do nothing
-                        dfs_log(LL_DEBUG) << "File is in sync, no action needed: " << filename;
+                        dfs_log(LL_DEBUG) << "Client copy newer, storing: " << filename;
+                        StatusCode status = this->Store(filename);
+                        if (status != StatusCode::OK) {
+                            dfs_log(LL_ERROR) << "Failed to store file to server: " << filename << " status=" << status;
+                        }
                     }
                 }
+                // Progress local event_time after update all files to this snapshot
+                this->event_time = new_event_time;
             } else {
                 dfs_log(LL_ERROR) << "Status was not ok. Will try again in " << DFS_RESET_TIMEOUT << " milliseconds.";
                 dfs_log(LL_ERROR) << call_data->status.error_message();
                 std::this_thread::sleep_for(std::chrono::milliseconds(DFS_RESET_TIMEOUT));
             }
-
             // Once we're complete, deallocate the call_data object.
             delete call_data;
 
@@ -611,6 +664,36 @@ void DFSClientNodeP2::HandleCallbackList() {
 void DFSClientNodeP2::InitCallbackList() {
     dfs_log(LL_DEBUG) << "Send CallbackList";
     CallbackList<FileRequestType, FileListResponseType>();
+}
+
+void DFSClientNodeP2::EnsureLocalStateInitialized() {
+    if (this->local_state_initialized) {
+        return;
+    }
+    this->local_state = dfs_initialize_local_state(this->mount_path, &this->crc_table);
+    this->local_state_initialized = true;
+}
+
+dfs_file_info_t DFSClientNodeP2::BuildLocalFileInfo(const std::string &filename) {
+    dfs_file_info_t info;
+    info.file_name = filename;
+    const std::string path = WrapPath(filename);
+    struct stat st{};
+    if (stat(path.c_str(), &st) == 0) {
+        info.mtime = static_cast<int>(st.st_mtime);
+        info.crc = dfs_file_checksum(path, &this->crc_table);
+        info.deleted = false;
+    } else {
+        info.mtime = static_cast<int>(std::time(nullptr));
+        info.crc = 0;
+        info.deleted = true;
+    }
+    return info;
+}
+
+bool DFSClientNodeP2::update_local_state(const std::string &filename, const dfs_file_info_t &info) {
+    this->local_state[filename] = info;
+    return true;
 }
 
 //

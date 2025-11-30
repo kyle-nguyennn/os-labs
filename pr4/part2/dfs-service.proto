@@ -99,5 +99,6 @@ message CallbackListRequest {
 }
 
 message CallbackListResponse {
-    repeated FileInfo files = 1;
+    int64 event_time = 1;
+    map<string, FileInfo> files = 2;
 }

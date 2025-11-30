@@ -56,35 +56,14 @@ std::map<std::string, dfs_file_info_t> get_local_file_map(
     return local_file_map;
 }
 
-std::map<std::string, short> dfs_reconcile_file_lists(
-    const std::map<std::string,dfs_file_info_t>& left,
-    const std::map<std::string,dfs_file_info_t>& right
+std::map<std::string, dfs_file_info_t> dfs_initialize_local_state(
+    const std::string& mount_path, CRC::Table<std::uint32_t, 32>* crc_table
 ) {
-    std::map<std::string, short> reconcile_map;
-
-    // Check for files in local map
-    for (const auto& entry : left) {
-        const std::string& filename = entry.first;
-
-        auto server_it = right.find(filename);
-        if (server_it == right.end()) {
-            // File exists on left but not on right
-            reconcile_map[filename] = -1;
-        } else {
-            reconcile_map[filename] = 0; // exists on both
-        }
+    auto state = get_local_file_map(mount_path, crc_table);
+    for (auto &entry : state) {
+        entry.second.deleted = false;
     }
-
-    // Check for files in server map that are missing locally
-    for (const auto& entry : right) {
-        const std::string& filename = entry.first;
-        if (left.find(filename) == left.end()) {
-            // File exists on right but not on left
-            reconcile_map[filename] = 1;
-        }
-    }
-
-    return reconcile_map;
+    return state;
 }
 
 int64_t get_file_mtime(const std::string& filepath) {
